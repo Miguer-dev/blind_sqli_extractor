@@ -4,8 +4,6 @@ import requests
 import signal
 import sys
 import time
-import string
-import argparse
 from pwn import *
 
 
@@ -301,11 +299,10 @@ def init_arguments():
     label_data = log.progress(f"{Color.BOLD}Data{Color.END}")
     label_exploit = log.progress(f"{Color.BOLD}Field to exploit{Color.END}")
     label_condition = log.progress(f"{Color.BOLD}Condition{Color.END}")
+    print("\n\n")
 
     while True:
-        input_url = input(
-            f"\n\n[{Color.BLUE}?{Color.END}] Request URL with https/http: "
-        )
+        input_url = input(f"[{Color.BLUE}?{Color.END}] Request URL with https/http: ")
 
         if input_url and ("http://" in input_url or "https://" in input_url):
             main_url = input_url
@@ -330,28 +327,34 @@ def init_arguments():
             time.sleep(1)
             print("\033[A\033[J" * 2, end="")
 
-    while True:
-        input_header = input(
-            f"[{Color.BLUE}?{Color.END}] Request Headers, use the following format <name>:<value> "
-        )
+    follow_condition = input(
+        f"[{Color.BLUE}?{Color.END}] Would you like to add headers to the request? y/n: "
+    )
+    print("\033[A\033[J", end="")
 
-        if input_header:
-            name, value = input_header.split(":")
-            headers[name] = value
-            label_headers.status(headers)
-            print("\033[A\033[J", end="")
-
-            follow_condition = input(
-                f"[{Color.BLUE}?{Color.END}] Would you like to add another header? y/n: "
+    if follow_condition == "y":
+        while True:
+            input_header = input(
+                f"[{Color.BLUE}?{Color.END}] Request Headers, use the following format <name>:<value> "
             )
-            print("\033[A\033[J", end="")
 
-            if follow_condition == "n":
-                break
-        else:
-            print(f"[{Color.RED}x{Color.END}] Input nor accepted")
-            print("\033[A\033[J" * 2, end="")
-            time.sleep(1)
+            if input_header:
+                name, value = input_header.split(":")
+                headers[name] = value
+                label_headers.status(headers)
+                print("\033[A\033[J", end="")
+
+                follow_condition = input(
+                    f"[{Color.BLUE}?{Color.END}] Would you like to add another header? y/n: "
+                )
+                print("\033[A\033[J", end="")
+
+                if follow_condition == "n":
+                    break
+            else:
+                print(f"[{Color.RED}x{Color.END}] Input nor accepted")
+                print("\033[A\033[J" * 2, end="")
+                time.sleep(1)
 
     while True:
         input_data = input(
@@ -417,7 +420,7 @@ def init_arguments():
 
 
 def main():
-    # init_arguments()
+    init_arguments()
 
     label_menu = log.progress(Color.RED + "Brute Force" + Color.END)
     label_menu.status(" Starting ...")
@@ -425,7 +428,7 @@ def main():
     time.sleep(1)
 
     # getUser(label_menu)
-    getDBs(label_menu)
+    # getDBs(label_menu)
     # getTables(label_menu)
     # getColumns(label_menu)
     # getRows(label_menu)
