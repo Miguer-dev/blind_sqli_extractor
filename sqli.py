@@ -4,6 +4,9 @@ import requests
 import signal
 import sys
 import time
+import os
+import re
+import math
 from pwn import *
 
 
@@ -47,19 +50,15 @@ signal.signal(signal.SIGINT, ctrlC)
 
 
 # Global Variables
-main_url = "http://usage.htb/forget-password"
-method = "POST"
-headers = {
-    "Cookie": "XSRF-TOKEN=eyJpdiI6ImltdzZieEZOejNDT09iRzRjalVPb0E9PSIsInZhbHVlIjoiQjBPMVhESU5rWkVvQ3h2YnczeE9zOE81T1BXRE80NFJBYitPL2doUkI2ZWhZeE0wbE1laG5ZbjNsaWptcjMrSkRkUk1GdmlIR28xTytQUHk3U3VWYXdlKzlscnFvTDAxSDZUVzYwd3NMbmM4UUFlVEorL3NjZ0VqYWRPTHhXWFoiLCJtYWMiOiI5ZmJjM2FmMDA1ZjkxNTI0MGMyMjQ2ODYyNmE5ZjRkNTY0NjBmMTU2MWYzNjg0YmE4MWQ4ZWQ4NDQ1N2YwMzdhIiwidGFnIjoiIn0%3D; laravel_session=eyJpdiI6IkJaZVF6T2orbC9QeGwrMDZaNUtIR0E9PSIsInZhbHVlIjoiZG9uaStzdWpodEhJQzZNUkd5bXRuMXBzQm5Jd08vN3dZR21HVnhnWEUwYXpJOHRvR0ZDd1NpWE9HUHNXUVJySjFoejQ1RWJuU2RKR0VIVEk3ZkZ5ZjVGN3o4RXY0NDQ2OEJvZm50UWFzNFp1NlIyc0N6Vys5QVYzRDByVElrR3ciLCJtYWMiOiI1ODNlOTYxYmMxODhjY2NkZjM3ZjkxNDM1M2RiNGNkMzMwYjE3NGYwNzM2NTc2N2IxMTBkMjQ5ZGMzN2RiOGQ5IiwidGFnIjoiIn0%3D"
-}
-post_data = {
-    "_token": "O3kYMir5RxfYAiqIkBy4OqK8VYSHeGjCxV3WgrkG",
-    "email": "test@gmail.com",
-}
-post_data_exploit = "email"
+main_url = ""
+method = ""
+headers = {}
+post_data = {}
+post_data_exploit = ""
 get_data = ""
-condition = "We have e-mailed your password reset link to"
+condition = ""
 dbs = []
+1
 
 
 # Functions
@@ -272,6 +271,14 @@ def buildFile():
     )
 
 
+def get_rows(answer_size, text):
+    size = os.get_terminal_size()
+    match = re.search(r"columns=(\d+)", str(size))
+    columns = int(match.group(1))
+
+    return math.ceil((answer_size + len(text)) / columns)
+
+
 def init_arguments():
     global main_url
     global headers
@@ -307,7 +314,7 @@ def init_arguments():
         if input_url and ("http://" in input_url or "https://" in input_url):
             main_url = input_url
             label_url.status(input_url)
-            print("\033[A\033[J", end="")
+            print("\033[A\033[J" * get_rows(33, input_url), end="")
             break
         else:
             print(f"[{Color.RED}x{Color.END}] Input nor accepted")
@@ -342,7 +349,7 @@ def init_arguments():
                 name, value = input_header.split(":")
                 headers[name] = value
                 label_headers.status(headers)
-                print("\033[A\033[J", end="")
+                print("\033[A\033[J" * get_rows(61, input_header), end="")
 
                 follow_condition = input(
                     f"[{Color.BLUE}?{Color.END}] Would you like to add another header? y/n: "
@@ -366,7 +373,7 @@ def init_arguments():
                 name, value = input_data.split(":")
                 post_data[name] = value
                 label_data.status(post_data)
-                print("\033[A\033[J", end="")
+                print("\033[A\033[J" * get_rows(112, input_data), end="")
 
                 follow_condition = input(
                     f"[{Color.BLUE}?{Color.END}] Would you like to add another value? y/n: "
@@ -396,7 +403,7 @@ def init_arguments():
             if input_exploit:
                 post_data_exploit = input_exploit
                 label_exploit.status(input_exploit)
-                print("\033[A\033[J", end="")
+                print("\033[A\033[J" * get_rows(47, input_data), end="")
                 break
             else:
                 print(f"[{Color.RED}x{Color.END}] Input nor accepted")
@@ -411,6 +418,7 @@ def init_arguments():
         if input_condition:
             condition = input_condition
             label_condition.status(input_condition)
+            print("\033[A\033[J" * get_rows(77, input_data), end="")
             print("\033[A\033[J", end="")
             break
         else:
