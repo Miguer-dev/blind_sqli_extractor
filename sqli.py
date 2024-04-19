@@ -62,7 +62,9 @@ post_data = {
 post_data_exploit = "email"
 get_data = ""
 condition = "We have e-mailed your password reset link to"
+num_threads = 10
 dbs = []
+threads = []
 
 
 # Functions
@@ -229,6 +231,7 @@ def init_arguments():
     global post_data_exploit
     global get_data
     global condition
+    global num_threads
 
     print(
         f"""
@@ -248,6 +251,8 @@ def init_arguments():
     label_data = log.progress(f"{Color.BOLD}Data{Color.END}")
     label_exploit = log.progress(f"{Color.BOLD}Field to exploit{Color.END}")
     label_condition = log.progress(f"{Color.BOLD}Condition{Color.END}")
+    label_threads = log.progress(f"{Color.BOLD}Threads{Color.END}")
+
     print("\n\n")
 
     while True:
@@ -361,12 +366,26 @@ def init_arguments():
             condition = input_condition
             label_condition.status(input_condition)
             print("\033[A\033[J" * get_input_rows(77, input_data), end="")
-            print("\033[A\033[J", end="")
             break
         else:
             print(f"[{Color.RED}x{Color.END}] Input nor accepted")
             time.sleep(1)
             print("\033[A\033[J" * 2, end="")
+
+    pc_threads = os.cpu_count() or 1
+    if pc_threads != 1:
+        try:
+            input_threads = input(
+                f"[{Color.BLUE}?{Color.END}] Number of threads 1-{pc_threads}: "
+            )
+            print("\033[A\033[J", end="")
+            if int(input_threads) in range(pc_threads + 1) and int(input_threads) != 0:
+                num_threads = int(input_threads)
+        except ValueError:
+            print(f"[{Color.RED}x{Color.END}] Input nor accepted")
+            time.sleep(1)
+            print("\033[A\033[J" * 2, end="")
+    label_threads.status(num_threads)
 
 
 def main():
@@ -377,12 +396,9 @@ def main():
     print("\n")
     time.sleep(1)
 
-    db = DB("usage_blog")
-    dbs.append(db)
-
-    # get_user(label_menu)
+    get_user(label_menu)
     # get_dbs(label_menu)
-    get_tables(label_menu)
+    # get_tables(label_menu)
     # get_columns(label_menu)
     # get_rows(label_menu)
     # build_file()
