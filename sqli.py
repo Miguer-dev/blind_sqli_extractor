@@ -26,12 +26,6 @@ class Color:
     END = "\033[1;37;0m"
 
 
-class WrapperResponse:
-    def __init__(self, text, character):
-        self.text = text
-        self.character = character
-
-
 class WrapperRequest:
     def __init__(self, data, character):
         self.data = data
@@ -56,7 +50,7 @@ class Table:
 
 # Ctrl + c
 def ctrlC(sig, frame):
-    print(f"\n\n[{Color.RED}x{Color.END}] Saliendo...\n")
+    print(f"\n\n[{Color.RED}x{Color.END}] {Color.RED}Saliendo...{Color.END}\n")
     sys.exit(1)
 
 
@@ -79,6 +73,18 @@ dbs = []
 
 
 # Functions
+def select_color(info_name):
+    switcher = {
+        "User": Color.UNDERLINE,
+        "DBs": Color.PURPLE,
+        "Tables": Color.CYAN,
+        "Columns": Color.BLUE,
+        "Rows": Color.BLUE,
+    }
+
+    return switcher.get(info_name, Color.BLUE)
+
+
 def build_payload(exploit, position, character, db, table):
     result = ""
 
@@ -160,7 +166,7 @@ def get_info(label_info, label_menu, info_name, db=None, table=None):
 
         if stop_threads:
             info += chr(character_finded)
-            label_info.status(f"{Color.GREEN}{info}{Color.END}")
+            label_info.status(f"{select_color(info_name)}{info}{Color.END}")
 
         position += 1
 
@@ -170,6 +176,7 @@ def get_info(label_info, label_menu, info_name, db=None, table=None):
 def get_user(label_menu):
     label_info = log.progress(Color.YELLOW + "User" + Color.END)
     get_info(label_info, label_menu, "User")
+    print("\n")
 
 
 def get_dbs(label_menu):
