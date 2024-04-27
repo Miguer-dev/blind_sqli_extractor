@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 
+from dataclasses import dataclass
 import requests
 import signal
 import sys
@@ -10,6 +11,15 @@ import math
 import concurrent.futures
 import copy
 from pwn import *
+
+
+# Ctrl + c
+def ctrlC(sig, frame):
+    print(f"\n\n[{Color.RED}x{Color.END}] {Color.RED}Saliendo...{Color.END}\n")
+    sys.exit(1)
+
+
+signal.signal(signal.SIGINT, ctrlC)
 
 
 # Classes
@@ -26,35 +36,225 @@ class Color:
     END = "\033[1;37;0m"
 
 
+@dataclass
 class WrapperRequest:
-    def __init__(self, data, character):
-        self.data = data
-        self.character = character
+    data: str | dict
+    character: int
 
 
+@dataclass
 class DB:
-    def __init__(self, name):
-        self.name = name
-        self.tables = []
+    name: str
+    tables: list
 
 
+@dataclass
 class Table:
-    def __init__(self, name):
-        self.name = name
-        self.columns = []
-        self.rows = []
+    name: str
+    columns: list
+    rows: list
 
     def concat_columns(self):
         return ",'|',".join(self.columns)
 
 
-# Ctrl + c
-def ctrlC(sig, frame):
-    print(f"\n\n[{Color.RED}x{Color.END}] {Color.RED}Saliendo...{Color.END}\n")
-    sys.exit(1)
+class Extractor:
 
+    def __init__(
+        self,
+        main_url,
+        method,
+        headers,
+        condition,
+        data,
+        atribute_to_exploit=None,
+        num_threads=1,
+    ):
+        self.main_url = main_url
+        self.method = method
+        self.headers = headers
+        self.condition = condition
+        self.num_threads = num_threads
+        self.data = data
+        self.atribute_to_exploit = atribute_to_exploit
+        _stop_threads = True
+        _character_finded = 0
+        _dbs = []
 
-signal.signal(signal.SIGINT, ctrlC)
+    @staticmethod
+    def init_with_interface():
+        main_url = ""
+        method = ""
+        headers = {}
+        data: str | dict = {}
+        atribute_to_exploit = ""
+        condition = ""
+        num_threads = 1
+
+        print(
+            f"""
+    {Color.BOLD}#####################################################################################################################################{Color.END}
+    {Color.BLUE}BBBBB   L      IIIII  N   N  DDDD {Color.END}     {Color.RED} SSS     QQQ    L      IIIII{Color.END}      {Color.BLUE}EEEEE  X   X  TTTTT  RRRR     A    CCCC  TTTTT   OOO   RRRR{Color.END}
+    {Color.BLUE}B   B   L        I    NN  N  D   D{Color.END}     {Color.RED}S       Q   Q   L        I  {Color.END}      {Color.BLUE}E       X X     T    R   R   A A   C       T    O   O  R   R{Color.END}
+    {Color.BLUE}BBBBB   L        I    N N N  D   D{Color.END}     {Color.RED} SSS    Q   Q   L        I  {Color.END}      {Color.BLUE}EEEE     X      T    RRRR   AAAAA  C       T    O   O  RRRR{Color.END}
+    {Color.BLUE}B   B   L        I    N  NN  D   D{Color.END}         {Color.RED}S   Q  QQ   L        I  {Color.END}      {Color.BLUE}E       X X     T    R  R   A   A  C       T    O   O  R  R{Color.END}
+    {Color.BLUE}BBBBB   LLLLL  IIIII  N   N  DDDD {Color.END}     {Color.RED}SSSS     QQ  Q  LLLLL  IIIII{Color.END}      {Color.BLUE}EEEEE  X   X    T    R   R  A   A  CCCC    T     OOO   R   R{Color.END}
+    {Color.BOLD}#####################################################################################################################################{Color.END}\n
+    """
+        )
+
+        label_url = log.progress(f"{Color.BOLD}Url{Color.END}")
+        label_method = log.progress(f"{Color.BOLD}Method{Color.END}")
+        label_headers = log.progress(f"{Color.BOLD}Headers{Color.END}")
+        label_data = log.progress(f"{Color.BOLD}Data{Color.END}")
+        label_exploit = log.progress(f"{Color.BOLD}Field to exploit{Color.END}")
+        label_condition = log.progress(f"{Color.BOLD}Condition{Color.END}")
+        label_threads = log.progress(f"{Color.BOLD}Threads{Color.END}")
+
+        print("\n\n")
+
+        while True:
+            input_url = input(
+                f"[{Color.BLUE}?{Color.END}] Request URL with https/http: "
+            )
+
+            if input_url and ("http://" in input_url or "https://" in input_url):
+                main_url = input_url
+                label_url.status(input_url)
+                print("\033[A\033[J" * get_input_rows(33, input_url), end="")
+                break
+            else:
+                print(f"[{Color.RED}x{Color.END}] Input nor accepted")
+                time.sleep(1)
+                print("\033[A\033[J" * 2, end="")
+
+        while True:
+            input_method = input(
+                f"[{Color.BLUE}?{Color.END}] Request Method, GET/POST: "
+            )
+
+            if input_method and (input_method == "POST" or input_method == "GET"):
+                method = input_method
+                label_method.status(input_method)
+                print("\033[A\033[J", end="")
+                break
+            else:
+                print(f"[{Color.RED}x{Color.END}] Input nor accepted")
+                time.sleep(1)
+                print("\033[A\033[J" * 2, end="")
+
+        follow_condition = input(
+            f"[{Color.BLUE}?{Color.END}] Would you like to add headers to the request? y/n: "
+        )
+        print("\033[A\033[J", end="")
+
+        if follow_condition == "y":
+            while True:
+                input_header = input(
+                    f"[{Color.BLUE}?{Color.END}] Request Headers, use the following format <name>:<value> "
+                )
+
+                if input_header:
+                    name, value = input_header.split(":")
+                    headers[name] = value
+                    label_headers.status(headers)
+                    print("\033[A\033[J" * get_input_rows(61, input_header), end="")
+
+                    follow_condition = input(
+                        f"[{Color.BLUE}?{Color.END}] Would you like to add another header? y/n: "
+                    )
+                    print("\033[A\033[J", end="")
+
+                    if follow_condition == "n":
+                        break
+                else:
+                    print(f"[{Color.RED}x{Color.END}] Input nor accepted")
+                    print("\033[A\033[J" * 2, end="")
+                    time.sleep(1)
+
+        while True:
+            input_data = input(
+                f"[{Color.BLUE}?{Color.END}] Values with which the request is correct, in Post Request use the following format <name>:<value> "
+            )
+
+            if input_data:
+                if method == "POST":
+                    name, value = input_data.split(":")
+                    data[name] = value
+                    label_data.status(data)
+                    print("\033[A\033[J" * get_input_rows(112, input_data), end="")
+
+                    follow_condition = input(
+                        f"[{Color.BLUE}?{Color.END}] Would you like to add another value? y/n: "
+                    )
+                    print("\033[A\033[J", end="")
+
+                    if follow_condition == "n":
+                        break
+
+                else:
+                    data = input_data
+                    label_data.status(data)
+                    print("\033[A\033[J", end="")
+                    break
+
+            else:
+                print(f"[{Color.RED}x{Color.END}] Input nor accepted")
+                print("\033[A\033[J" * 2, end="")
+                time.sleep(1)
+
+        if method == "POST":
+            while True:
+                input_exploit = input(
+                    f"[{Color.BLUE}?{Color.END}] Name of the value that we want to exploit: "
+                )
+
+                if input_exploit:
+                    atribute_to_exploit = input_exploit
+                    label_exploit.status(input_exploit)
+                    print("\033[A\033[J" * get_input_rows(47, input_data), end="")
+                    break
+                else:
+                    print(f"[{Color.RED}x{Color.END}] Input nor accepted")
+                    time.sleep(1)
+                    print("\033[A\033[J" * 2, end="")
+
+        while True:
+            input_condition = input(
+                f"[{Color.BLUE}?{Color.END}] Text in the response by which we can detect that the result was correct: "
+            )
+
+            if input_condition:
+                condition = input_condition
+                label_condition.status(input_condition)
+                print("\033[A\033[J" * get_input_rows(77, input_data), end="")
+                break
+            else:
+                print(f"[{Color.RED}x{Color.END}] Input nor accepted")
+                time.sleep(1)
+                print("\033[A\033[J" * 2, end="")
+
+        pc_threads = os.cpu_count() or 1
+        if pc_threads != 1:
+            try:
+                input_threads = input(
+                    f"[{Color.BLUE}?{Color.END}] Number of threads 1-{pc_threads}: "
+                )
+                print("\033[A\033[J", end="")
+                if (
+                    int(input_threads) in range(pc_threads + 1)
+                    and int(input_threads) != 0
+                ):
+                    num_threads = int(input_threads)
+            except ValueError:
+                print(f"[{Color.RED}x{Color.END}] Input nor accepted")
+                time.sleep(1)
+                print("\033[A\033[J" * 2, end="")
+        label_threads.status(num_threads)
+
+        return Extractor(
+            main_url, method, headers, condition, data, atribute_to_exploit, num_threads
+        )
 
 
 # Global Variables
@@ -65,7 +265,7 @@ post_data = {}
 post_data_exploit = ""
 get_data = "home"
 condition = "Welcome to the IMF Administration"
-num_threads = 10
+num_threads = 1
 
 stop_threads = True
 character_finded = 0
@@ -445,7 +645,20 @@ def init_arguments():
 
 
 def main():
-    # init_arguments()
+
+    instance = Extractor.init_with_interface()
+
+    print(instance.main_url)
+    print(instance.method)
+    print(instance.headers)
+    print(instance.condition)
+    print(instance.data)
+    print(instance.atribute_to_exploit)
+    print(instance.num_threads)
+
+
+"""
+    init_arguments()
 
     label_menu = log.progress(Color.RED + "Brute Force" + Color.END)
     label_menu.status(" Starting ...")
@@ -458,7 +671,7 @@ def main():
     get_columns(label_menu)
     get_rows(label_menu)
     build_file()
-
+"""
 
 # Main
 if __name__ == "__main__":
