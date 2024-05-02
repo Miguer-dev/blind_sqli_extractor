@@ -235,6 +235,44 @@ class GetRequest(RequestType):
         return response, chr(requests_data.character)
 
 
+class Condition(ABC):
+
+    def __init__(self, value: str):
+        self.__value = value
+
+    @abstractmethod
+    def get_condition(self, response: requests.Response) -> bool:
+        pass
+
+
+class TextInCondition(Condition):
+
+    def get_condition(self, response: requests.Response) -> bool:
+        result = False
+
+        if self.__value in response.text:
+            result = True
+
+        return result
+
+
+class StatusEqualCondition(Condition):
+
+    def get_condition(self, response: requests.Response) -> bool:
+        result = False
+
+        if self.__value == str(response.status_code):
+            result = True
+
+        return result
+
+
+class TimeCondition(Condition):
+
+    def get_condition(self, response: requests.Response) -> bool:
+        return False
+
+
 # Main Class
 class Extractor:
 
