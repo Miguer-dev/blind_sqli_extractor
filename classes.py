@@ -1,8 +1,4 @@
 import requests
-import time
-import os
-import re
-import math
 import concurrent.futures
 from abc import ABC, abstractmethod
 from pwn import log
@@ -295,7 +291,7 @@ class Extractor:
         global stop_threads
 
         stop_threads = True
-        info = ""
+        info = "admin|$2y$10$ohq2kLpBH/ri.P5wR0P3UOmc24Ydvl9DA9H1S6ooOMgH5xVfUPrL"
         position = len(info) + 1
 
         while stop_threads:

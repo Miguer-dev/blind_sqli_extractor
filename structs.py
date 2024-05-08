@@ -24,6 +24,4 @@ class Table:
     rows: list
 
     def concat_columns(self) -> str:
-        """Concatenates the columns to display them"""
-
-        return ",'|',".join(self.columns)
+        return ",'|',".join(f"{self.name}.{column}" for column in self.columns)

